@@ -3,7 +3,7 @@ import { createI18n } from "vue-i18n";
 /**
  * A message catalog: nested strings/plurals keyed by name. Values line up with
  * vue-i18n's `LocaleMessageValue`, so `createI18n` resolves to its Composition-API
- * (non-legacy) overload — which is what makes `i18n.global.locale` a writable ref.
+ * (non-legacy) overload, which is what makes `i18n.global.locale` a writable ref.
  * Key existence itself is enforced by each app's build-time i18n check, not by TS.
  */
 export type MessageValue = string | MessageCatalog | MessageValue[];
@@ -21,7 +21,7 @@ export interface MessageCatalog {
  *   - builds the Composition-API i18n instance (`legacy: false`, `globalInjection`)
  *     with `messages` and English as the base/fallback,
  *   - remembers the chosen locale under `storageKey` (falling back to `en` when
- *     nothing valid is stored — private-mode `localStorage` throws are swallowed),
+ *     nothing valid is stored, private-mode `localStorage` throws are swallowed),
  *   - reflects the active locale onto `<html lang>` from first paint and on every
  *     `setLocale()`,
  *   - derives the set of supported locales from `Object.keys(messages)`, so an app
@@ -42,14 +42,14 @@ export function createAppI18n(
   const isSupported = (code: string): boolean => supported.includes(code);
 
   // Prefer a saved choice, else fall back to the base locale. (No auto
-  // browser-detect yet — apps ship one language. Add `navigator.language`
+  // browser-detect yet, apps ship one language. Add `navigator.language`
   // matching here once catalogs grow.)
   function initialLocale(): string {
     try {
       const saved = localStorage.getItem(storageKey);
       if (saved && isSupported(saved)) return saved;
     } catch {
-      /* localStorage can throw in private mode — fall through to the default */
+      /* localStorage can throw in private mode, fall through to the default */
     }
     return DEFAULT_LOCALE;
   }

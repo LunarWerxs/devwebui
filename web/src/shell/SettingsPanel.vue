@@ -3,7 +3,7 @@ export default { inheritAttrs: false };
 </script>
 
 <script setup lang="ts">
-// Back-compat shim. The shared slide-in sidebar now lives in Sidebar.vue — this
+// Back-compat shim. The shared slide-in sidebar now lives in Sidebar.vue, this
 // forwards every prop/emit/slot so existing Settings call sites keep working.
 import Sidebar from "./Sidebar.vue";
 </script>

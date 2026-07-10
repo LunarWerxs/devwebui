@@ -1,7 +1,7 @@
 /* =====================================================================
-   LunarWerx UI — shared base tokens · shadcn-vue "reka-mira" style
+   LunarWerx UI, shared base tokens · shadcn-vue "reka-mira" style
    ---------------------------------------------------------------------
-   Part of the shared kit — keep it app-agnostic.
+   Part of the shared kit, keep it app-agnostic.
    Per-app brand accent (primary/ring) lives in the sibling accent file
    (accent-<app>.css), imported right after this one.
    ===================================================================== */
@@ -14,7 +14,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* The :where form matches `.dark` itself OR any descendant — needed because
+/* The :where form matches `.dark` itself OR any descendant, needed because
    reka-ui portals can land `.dark` directly on the portalled element. */
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -29,7 +29,7 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);            /* neutral default — overridden by accent file */
+  --primary: oklch(0.205 0 0);            /* neutral default, overridden by accent file */
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -47,7 +47,7 @@
 
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);               /* neutral default — overridden by accent file */
+  --ring: oklch(0.708 0 0);               /* neutral default, overridden by accent file */
 
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);

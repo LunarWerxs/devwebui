@@ -9,7 +9,7 @@ import { ref, type Ref } from "vue";
  *
  * Call it INSIDE a Pinia setup store and spread the returned refs/functions into
  * that store's `return {}` (mirroring how each app already composes its other
- * setup helpers). `TStatus`/`TApply` stay the app's own DTOs — pass them as the
+ * setup helpers). `TStatus`/`TApply` stay the app's own DTOs, pass them as the
  * generic args: `useSelfUpdate<UpdateStatus, UpdateApplyResult>(api)`.
  */
 export function useSelfUpdate<TStatus, TApply extends { status: TStatus }>(api: {

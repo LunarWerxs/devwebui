@@ -41,6 +41,7 @@
     "dist": "bun run scripts/build.ts",
     "start": "bun server/src/index.ts",
     "test": "bun test",
+    "check:kit": "node ../../lunarwerx-ui/sync.mjs --check --app devwebui",
     "typecheck": "cd web && bun run typecheck && cd .. && tsc --noEmit -p server/tsconfig.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

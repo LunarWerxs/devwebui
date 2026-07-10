@@ -2,7 +2,7 @@
  * Shared "time ago" formatting for all LunarWerx apps.
  *
  * `formatAgo(nowMs, ts, t?)` buckets an elapsed duration to seconds / minutes /
- * hours / days. Pass the caller's clock as `nowMs` (callers own "now" — testable
+ * hours / days. Pass the caller's clock as `nowMs` (callers own "now", testable
  * and stable within a render pass) and the target timestamp as `ts`. Optionally
  * pass an i18n translator `t(key, { n })` using the keys `time.secondsAgo` /
  * `time.minutesAgo` / `time.hoursAgo` / `time.daysAgo`; when omitted it falls

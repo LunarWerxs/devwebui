@@ -1,15 +1,15 @@
-// LunarWerx shared MCP engine — the canonical JSON-RPC 2.0 / MCP dispatch + newline-delimited
-// stdio loop, shared by every sibling app's MCP server (RepoYeti, Reimagine, …). Synced verbatim
+// LunarWerx shared MCP engine, the canonical JSON-RPC 2.0 / MCP dispatch + newline-delimited
+// stdio loop, shared by every sibling app's MCP server (RepoYeti, Reimagine, ...). Synced verbatim
 // into each app's server tree by sync.mjs; edit HERE, never the synced copies.
 //
 // Zero dependencies and runtime-agnostic (runs identically under Bun and Node): it touches only
 // `process.stdin` / `process.stdout` and, indirectly, whatever the caller's tools do. Each app
-// supplies its own `serverInfo` + a `tools` array — `{ name, description, inputSchema, run(args) }`,
-// each tool a thin proxy to that app's own HTTP API — and this engine owns everything protocol:
+// supplies its own `serverInfo` + a `tools` array, `{ name, description, inputSchema, run(args) }`,
+// each tool a thin proxy to that app's own HTTP API, and this engine owns everything protocol:
 // the initialize / ping / tools/list / tools/call switch, the JSON-RPC error envelopes, the
 // tool-error → MCP `isError` result wrapping, and the stdin→dispatch→stdout loop.
 //
-// STDOUT is the protocol channel — only JSON-RPC responses (one per line) are ever written there;
+// STDOUT is the protocol channel, only JSON-RPC responses (one per line) are ever written there;
 // diagnostics go to STDERR so a stray log can't corrupt the stream.
 
 const PROTOCOL_VERSION = "2024-11-05";
@@ -25,14 +25,14 @@ const ERR = {
 const rpcResult = (id, value) => ({ jsonrpc: "2.0", id, result: value });
 const rpcError = (id, code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
 
-/** A -32700 parse-error response (id null) — used by transports on malformed input. */
+/** A -32700 parse-error response (id null), used by transports on malformed input. */
 export function parseErrorResponse() {
   return rpcError(null, ERR.PARSE, "Parse error");
 }
 
 /**
  * Dispatch one parsed JSON-RPC message against `ctx` ({ serverInfo, tools }). Returns the response
- * object, or null when the message is a notification (no `id`) — the caller must then emit nothing.
+ * object, or null when the message is a notification (no `id`), the caller must then emit nothing.
  * Pure (no IO): both a stdio server and an in-process HTTP endpoint can share it.
  */
 export async function handleRpc(msg, ctx) {
@@ -96,7 +96,7 @@ export async function handleRpc(msg, ctx) {
 /** Process one already-sliced line; return the JSON string to write (or null for a notification). */
 export async function processLine(line, ctx) {
   const trimmed = String(line).trim();
-  if (trimmed === "") return null; // blank keep-alive line — ignore
+  if (trimmed === "") return null; // blank keep-alive line, ignore
   let msg;
   try {
     msg = JSON.parse(trimmed);
@@ -108,7 +108,7 @@ export async function processLine(line, ctx) {
 }
 
 /**
- * Read stdin as newline-delimited JSON (sequentially via async iteration — works under both Bun
+ * Read stdin as newline-delimited JSON (sequentially via async iteration, works under both Bun
  * and Node), dispatch each line against `ctx`, and write each non-null response as one line to
  * stdout. Resolves when stdin closes (the client disconnected). All logging goes to stderr.
  */
@@ -125,7 +125,7 @@ export async function runMcpStdio(ctx) {
         const out = await processLine(line, ctx);
         if (out !== null) process.stdout.write(`${out}\n`);
       } catch (e) {
-        // A processing failure is logged to stderr only — never poison stdout with non-protocol text.
+        // A processing failure is logged to stderr only, never poison stdout with non-protocol text.
         process.stderr.write(
           `${ctx.serverInfo.name} mcp: error handling line: ${e?.message ? e.message : e}\n`,
         );

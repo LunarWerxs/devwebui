@@ -6,7 +6,7 @@
  * a dev Vite proxy can follow it too. Best-effort throughout: a write/read failure
  * never blocks the daemon.
  *
- * Runtime-agnostic (Bun + Node). Synced from the shared kit — do not edit in an
+ * Runtime-agnostic (Bun + Node). Synced from the shared kit, do not edit in an
  * app; the `.d.mts` sibling types the import for the TypeScript apps.
  *
  * Per-app knobs:
@@ -44,10 +44,10 @@ export function createInstancePointer({ configDir, serviceName, host = "127.0.0.
       try {
         chmodSync(runtimeFile, 0o600);
       } catch {
-        /* windows / already-correct — ignore */
+        /* windows / already-correct, ignore */
       }
     } catch {
-      /* best-effort — the launcher falls back to the default port */
+      /* best-effort, the launcher falls back to the default port */
     }
   }
 
@@ -72,7 +72,7 @@ export function createInstancePointer({ configDir, serviceName, host = "127.0.0.
   /**
    * Resolve a LIVE instance from the pointer, or null. Reads runtime.json and probes
    * `${url}/api/health` so a stale pointer (daemon crashed, or the port was recycled
-   * by another app) reads as "nothing running" — only a real, answering daemon counts.
+   * by another app) reads as "nothing running", only a real, answering daemon counts.
    */
   async function findLiveInstance(timeoutMs = 1000) {
     const info = readInstanceInfo();

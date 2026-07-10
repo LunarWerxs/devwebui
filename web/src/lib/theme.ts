@@ -7,10 +7,10 @@ import { useStorage, usePreferredDark } from "@vueuse/core";
  * ONE implementation, merged from what each app used to hand-roll separately:
  *  - light / dark / system modes, persisted to localStorage, DEFAULTING TO **dark**
  *    (RepoYeti + Reimagine identity; DevWebUI adopts it here, dropping its old OS-`auto`
- *    default — the lone outlier);
+ *    default, the lone outlier);
  *  - toggles `.dark` on <html>, mirrors the raw mode to `html[data-theme]`, and sets
  *    `html.style.colorScheme` so native form controls / scrollbars match;
- *  - a brief crossfade on change — adds `html.theme-transitioning` (styled in base.css,
+ *  - a brief crossfade on change, adds `html.theme-transitioning` (styled in base.css,
  *    280 ms) around the swap, then strips it (ex-RepoYeti). An `activeScopes` ref-count
  *    clears any pending transition once the last consumer unmounts, so no timer/class leaks
  *    across a full teardown (reduced-motion is neutralised by base.css, not here);
@@ -20,7 +20,7 @@ import { useStorage, usePreferredDark } from "@vueuse/core";
  *
  * DEFAULT = dark. The no-flash boot script in each app's index.html <head> MUST use the same
  * storage key (`lunarwerx-theme`) and the same resolve logic (see the kit README "Theme boot
- * snippet") — otherwise the first paint flashes before this composable takes over.
+ * snippet"), otherwise the first paint flashes before this composable takes over.
  */
 export type ThemeMode = "light" | "dark" | "system";
 

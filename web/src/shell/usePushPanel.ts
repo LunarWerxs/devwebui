@@ -2,7 +2,7 @@ import { computed, ref, watch, type Ref } from "vue";
 import { useMediaQuery } from "@vueuse/core";
 
 /**
- * usePushPanel — the shared "settings slide-in that PUSHES content" behaviour.
+ * usePushPanel, the shared "settings slide-in that PUSHES content" behaviour.
  *
  * On desktop the panel docks to the right edge and the page content is shifted
  * left by the panel's width (an animated `padding-right` on the app shell root).
@@ -12,8 +12,8 @@ import { useMediaQuery } from "@vueuse/core";
  * Usage (in an app shell):
  *   const open = ref(false);
  *   const { side, containerStyle } = usePushPanel(open);
- *   // <div class="transition-[padding] duration-300 ease-in-out" :style="containerStyle"> … </div>
- *   // <SettingsPanel v-model:open="open" :side="side"> … </SettingsPanel>
+ *   // <div class="transition-[padding] duration-300 ease-in-out" :style="containerStyle"> ... </div>
+ *   // <SettingsPanel v-model:open="open" :side="side"> ... </SettingsPanel>
  */
 export type PushPanelSide = "right" | "bottom";
 

@@ -23,7 +23,7 @@ export class ApiError extends Error {
 
 /**
  * fetch + throw `ApiError` on any non-2xx (best-effort message/code from a JSON
- * error body), otherwise return the raw `Response` unread — use when the caller
+ * error body), otherwise return the raw `Response` unread, use when the caller
  * wants the Response itself (e.g. a POST whose body it ignores).
  */
 export async function httpFetch(url: string, init?: RequestInit): Promise<Response> {

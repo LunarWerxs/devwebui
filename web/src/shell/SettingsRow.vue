@@ -2,8 +2,8 @@
 import type { Component } from "vue";
 
 /**
- * SettingsRow — a single settings line: [icon] label (+optional description / info)
- * … [control]. Lives inside a SettingsGroup. The control slot holds the right-hand
+ * SettingsRow, a single settings line: [icon] label (+optional description / info)
+ * ... [control]. Lives inside a SettingsGroup. The control slot holds the right-hand
  * widget (a Switch, a Select, a value + chevron, etc.). `clickable` adds a hover
  * affordance for whole-row buttons (e.g. a row that opens a subpage).
  */

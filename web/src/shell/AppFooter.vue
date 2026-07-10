@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * AppFooter — the single sponsor credit shown at the bottom of every LunarWerx
+ * AppFooter, the single sponsor credit shown at the bottom of every LunarWerx
  * app. The wording is intentionally literal English (not i18n) so one component
  * serves apps with and without vue-i18n; it lives in src/shell, which every
  * app's i18n prose check exempts. Width tracks the shared `--container-max`.

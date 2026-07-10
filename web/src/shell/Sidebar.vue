@@ -15,12 +15,12 @@ import { cn } from "@/lib/utils";
 import { type PushPanelSide, DEFAULT_PANEL_WIDTH } from "./usePushPanel";
 
 /**
- * Sidebar — the ONE slide-in panel every LunarWerx app uses (settings, drawers,
+ * Sidebar, the ONE slide-in panel every LunarWerx app uses (settings, drawers,
  * viewers). No bespoke per-app sidebar code.
  *
  * mode="push" (default, desktop side="right"): non-modal, NO backdrop. The panel
  *   slides in from the edge over 300ms; pair with usePushPanel so the shell's
- *   content padding animates over the same 300ms — the panel and page move
+ *   content padding animates over the same 300ms, the panel and page move
  *   together (no snap-then-shift). Outside clicks do NOT close it (close via ✕ /
  *   Escape / the trigger), which also prevents the open-then-vanish flash when it's
  *   opened from an external button.
@@ -67,9 +67,9 @@ const contentStyle = computed<CSSProperties>(() => {
   };
 });
 
-// A push panel never dismisses on an outside click — only ✕ / Escape / the trigger
+// A push panel never dismisses on an outside click, only ✕ / Escape / the trigger
 // toggle. (This also swallows the opening click from an external trigger, so it can't
-// open-then-vanish.) Modal overlays — the mobile bottom sheet and wide overlay drawers —
+// open-then-vanish.) Modal overlays, the mobile bottom sheet and wide overlay drawers, 
 // keep the normal tap-outside-to-close affordance.
 function guardOutside(e: Event) {
   if (!overlayed.value) e.preventDefault();

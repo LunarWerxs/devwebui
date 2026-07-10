@@ -2,7 +2,7 @@
  * Shared self-update engine for the LunarWerx daemons. Checks the app's configured
  * update remote for a newer commit and (on request) fast-forward-pulls + reinstalls +
  * rebuilds, returning a step-by-step transcript. The git/spawn/parse plumbing was
- * duplicated near-verbatim across the apps — this is the one copy, parameterised by:
+ * duplicated near-verbatim across the apps, this is the one copy, parameterised by:
  *
  *   appRoot           the checkout root (each app resolves its own import.meta path)
  *   serviceName       the `service` field on UpdateStatus (e.g. "repoyeti")
@@ -12,7 +12,7 @@
  *   buildCmd          build step, e.g. ["bun", "run", "--cwd", "web", "build"]
  *
  * runtime-agnostic (Bun + Node): node:child_process spawn runs in both. Part of the
- * shared kit — keep it app-agnostic.
+ * shared kit, keep it app-agnostic.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -33,7 +33,7 @@ export function createUpdater({ appRoot, serviceName, appLabel, updateRepoEnvVar
   }
 
   // On Windows, package-manager launchers (npm/yarn/pnpm) are `.cmd` shims that CreateProcess
-  // can't execute directly, so a bare spawn throws ENOENT — while git/node/bun are real `.exe`
+  // can't execute directly, so a bare spawn throws ENOENT, while git/node/bun are real `.exe`
   // and resolve fine. So spawn raw first (git/bun keep their exact behavior and no shell-escaping
   // deprecation fires) and retry once through a shell only when the raw spawn ENOENTs on Windows,
   // which is exactly the `.cmd`-shim case. Every arg here is a fixed literal or a git URL (no
@@ -247,9 +247,9 @@ export function createUpdater({ appRoot, serviceName, appLabel, updateRepoEnvVar
       throw new Error(
         reset.ok
           ? restored
-            ? `${msg} — rolled back to the previous version`
-            : `${msg} — code was rolled back, but reinstalling/rebuilding it failed; the previous version may not run until this is fixed`
-          : `${msg} — rollback failed; the checkout may be partially updated`,
+            ? `${msg}; rolled back to the previous version`
+            : `${msg}; code was rolled back, but reinstalling/rebuilding it failed; the previous version may not run until this is fixed`
+          : `${msg}; rollback failed; the checkout may be partially updated`,
       );
     }
 
