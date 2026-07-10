@@ -1,0 +1,145 @@
+# DevWebUI — AI guide & `.devwebui` authoring
+
+DevWebUI runs and monitors a codebase's dev servers from a GUI (and an MCP server).
+It learns about a codebase from a **`.devwebui` file** you drop in that repo. This
+guide tells an AI exactly what that file should contain.
+
+**The fastest path:** copy the prompt in [§ Copy-paste prompt](#copy-paste-prompt)
+into your AI assistant while it's open in the repo you want to manage. It will
+inspect the repo and write a correct `.devwebui` file for you.
+
+---
+
+## The `.devwebui` file format
+
+A `.devwebui` file is JSON. One file describes **one codebase** and lists every
+long-running dev process it has. Name it after the repo, e.g. `myapp.devwebui`,
+and put it in the repo root.
+
+```jsonc
+{
+  "name": "My App",            // shown as the codebase header in DevWebUI (required)
+  "processes": [               // one entry per long-running server (required, ≥1)
+    {
+      "id": "web",             // unique within this file; letters/numbers/._- (required)
+      "name": "Web (Vite)",    // human label on the card (required)
+      "command": "npm run dev",// the shell command that starts the server (required)
+      "cwd": ".",              // optional; relative to THIS file. Default "." (the file's folder)
+      "port": 5173,            // optional; lets DevWebUI warn on port conflicts
+      "url": "/admin",         // optional; where the title links. Path appended to http://<host>:<port>, or an absolute http(s):// URL
+      "color": "#6366f1",      // optional; a hex dot color for the card
+      "autostart": true,       // optional; start it automatically when the project loads
+      "env": { "NODE_ENV": "development" } // optional; extra env vars for this process
+    }
+  ]
+}
+```
+
+### Field rules
+
+| Field        | Required | Notes |
+| ------------ | -------- | ----- |
+| `name`       | yes      | The codebase name (the collapsible panel header). |
+| `processes`  | yes      | Array, at least one. |
+| `id`         | yes      | Unique **within the file**. `^[A-Za-z0-9._-]+$`. |
+| `name`       | yes      | Per-process label. |
+| `command`    | yes      | Exactly what you'd type in a terminal to start it. |
+| `cwd`        | no       | Relative to the `.devwebui` file's folder. Omit if it's the repo root. |
+| `port`       | no       | The port the server listens on. Enables conflict detection + "Free it". |
+| `url`        | no       | Where the (running) process title links. A path like `/admin` is appended to `http://<host>:<port>` (the host comes from Settings → *Open in browser*, defaulting to the address you opened DevWebUI on); an absolute `http(s)://…` is used as-is. Defaults to `http://<host>:<port>`. |
+| `color`      | no       | Hex like `#10b981`. |
+| `autostart`  | no       | `true` to launch on load. Use it for the main server(s), not every one. |
+| `env`        | no       | `{ "KEY": "value" }` map merged into the process environment. |
+
+### Authoring guidance
+
+- **One `.devwebui` per repo**, listing the servers a developer actually starts to
+  work on it (frontend dev server, backend/API, worker, etc.).
+- Find the real commands in `package.json` `scripts` (`dev`, `start`, `serve`,
+  `watch`), a `Procfile`, `docker-compose.yml`, `Makefile`, or the README.
+- Set `port` whenever you can tell what port the server binds (from the command,
+  config, or docs) — it powers conflict detection.
+- `cwd` is relative to the file. For a monorepo, point each process at its package
+  (e.g. `"cwd": "apps/api"`), keeping ONE `.devwebui` at the repo root.
+- Only `autostart` the server(s) the developer always wants up — not heavy or
+  occasional ones.
+
+---
+
+## Copy-paste prompt
+
+> Paste this to your AI assistant in the repo you want DevWebUI to manage. It does
+> not need DevWebUI installed to write the file.
+
+```text
+You are creating a `.devwebui` file for DevWebUI (a GUI dev-server manager). Inspect
+THIS repository and produce a single `.devwebui` file describing the dev servers a
+developer starts to work on it.
+
+How to find them: read package.json "scripts" (dev/start/serve/watch), plus any
+Procfile, docker-compose.yml, Makefile, turbo.json, or README dev instructions.
+Identify each long-running process (frontend dev server, backend/API, worker,
+queue, etc.). Ignore one-shot commands (build, test, lint, typecheck, migrations).
+
+Output ONLY the file content as JSON in this exact schema — no prose, no code fence:
+
+{
+  "name": "<repo name>",
+  "processes": [
+    {
+      "id": "<short-unique-id>",     // ^[A-Za-z0-9._-]+$, unique in this file
+      "name": "<human label>",
+      "command": "<exact shell command to start it>",
+      "cwd": "<dir relative to this file, omit if repo root>",
+      "port": <number, omit if unknown>,
+      "url": "<path like /admin or an absolute http(s):// URL, omit unless the app's entry isn't the server root>",
+      "color": "<hex, optional>",
+      "autostart": <true only for the main server(s), omit otherwise>
+    }
+  ]
+}
+
+Rules:
+- One file for the whole repo. cwd is relative to where this .devwebui file will be
+  saved (default the repo root). In a monorepo, set cwd per package.
+- Include "port" whenever you can determine it from the command or config.
+- Only set "autostart": true on the server(s) a developer always wants running.
+- Required per process: id, name, command. Everything else is optional.
+- If you cannot find any dev server, say so instead of inventing one.
+
+Save the result as `<repo-name>.devwebui` in the repo root. Then in DevWebUI click
+"Add project" and pick that file.
+```
+
+---
+
+## For an AI driving DevWebUI over MCP
+
+DevWebUI exposes an MCP server — a thin stdio client over the running daemon, so the GUI and
+agents share one state. Register it as shown in the README's
+[MCP section](README.md#drive-it-from-an-ai-agent-mcp), then use the **17 tools**:
+
+**Projects**
+
+- `list_projects` — loaded projects (codebases), each with its processes and live status.
+- `load_project` — load a `.devwebui` file by **absolute path** (registers its processes, remembers it).
+- `remove_project` — unload a project by id (stops its processes and forgets it).
+- `enable_project` / `disable_project` — turn a whole codebase on/off and start/stop it; persists across daemon restarts.
+
+**Processes**
+
+- `list_processes` — every managed process with live status, pid, uptime, CPU and memory.
+- `start_process` / `stop_process` / `restart_process` — act on one process by id.
+- `start_all` / `stop_all` — every managed process at once.
+- `enable_process` / `disable_process` — turn one process on/off and start/stop it; persists across restarts.
+- `take_over_autostart` — retire a repo's external dev-server auto-start (VS Code `tasks.json` `runOn:folderOpen`, the Vite extension's `vite.autoStart`) so DevWebUI is the sole launcher. Backs up each edited file first. Pass the project folder (absolute path).
+
+**Logs & errors**
+
+- `get_logs` — recent log lines for a process (most recent last).
+- `list_errors` — the de-duplicated record of process errors (stderr / crashes / error-looking stdout), most recent first.
+- `clear_errors` — clear the error log (optionally for a single process id).
+
+**Common flows:** to onboard a repo, write its `.devwebui` file (above), then `load_project` with
+the absolute path. To diagnose breakage, `list_errors`. To hand a repo fully over to DevWebUI,
+`take_over_autostart` on its folder.

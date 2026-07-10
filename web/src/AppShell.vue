@@ -1,0 +1,264 @@
+<script setup lang="ts">
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+import { storeToRefs } from "pinia";
+import { Plus } from "@lucide/vue";
+import { Button } from "@/components/ui/button";
+import AppContainer from "@/shell/AppContainer.vue";
+import { usePushPanel } from "@/shell/usePushPanel";
+import TopBar from "./components/TopBar.vue";
+import ProjectPanel from "./components/ProjectPanel.vue";
+import ProcessForm from "./components/ProcessForm.vue";
+import AddProjectDialog from "./components/AddProjectDialog.vue";
+import Settings from "./components/Settings.vue";
+import LogDrawer from "./components/LogDrawer.vue";
+import NotificationsDrawer from "./components/NotificationsDrawer.vue";
+import AppFooter from "@/shell/AppFooter.vue";
+import { useAppStore } from "./store";
+import { toast } from "vue-sonner";
+import { getSettings, scanForDevWebUI, type ScanResult } from "@/api";
+import { useLastCrashHint } from "@/lib/lastCrash";
+import type { AppNotification, ProcessView } from "@/types";
+
+const { t } = useI18n({ useScope: "global" });
+
+const store = useAppStore();
+const { projects, connected, allProcesses, lastCrashEvent } = storeToRefs(store);
+const showLastCrashHint = useLastCrashHint();
+
+// Time-Travel Log Vault killer detail: a process whose last run crashed is starting
+// again (pushed over SSE — covers auto-started processes with no HTTP response to
+// carry this on; the direct start() response case is handled at the call site, e.g.
+// ProcessCard/ProcessTable, so both paths funnel through the same toast helper).
+watch(lastCrashEvent, (ev) => {
+  if (!ev) return;
+  const name = allProcesses.value.find((p) => p.id === ev.id)?.name ?? ev.id;
+  showLastCrashHint(name, ev.lastCrash);
+});
+
+const selected = ref<string | null>(null);
+const drawerOpen = ref(false);
+const notificationsOpen = ref(false);
+const errorsFilter = ref<string | null>(null);
+const addOpen = ref(false);
+const addScanOnOpen = ref(false);
+const addPrefillScan = ref<ScanResult | null>(null);
+const settingsOpen = ref(false);
+// Any right-side panel (settings, logs, notifications) pushes the page content.
+const anyPanel = computed(() => settingsOpen.value || drawerOpen.value || notificationsOpen.value);
+const { side: panelSide, shiftPx: panelShiftPx } = usePushPanel(anyPanel);
+
+// Process add/edit form state.
+const formOpen = ref(false);
+const formMode = ref<"add" | "edit">("add");
+const formProjectId = ref("");
+const formInitial = ref<ProcessView | null>(null);
+
+// Only one right-side panel is visible at a time — opening one closes the others (they dock in
+// the same region). `keep` is the panel being opened.
+function closeOtherPanels(keep: "settings" | "logs" | "notifications") {
+  if (keep !== "settings") settingsOpen.value = false;
+  if (keep !== "logs") drawerOpen.value = false;
+  if (keep !== "notifications") notificationsOpen.value = false;
+}
+
+function openSettings() {
+  closeOtherPanels("settings");
+  settingsOpen.value = true;
+}
+
+function openLogs(id: string) {
+  closeOtherPanels("logs");
+  selected.value = id;
+  drawerOpen.value = true;
+}
+
+function openNotifications() {
+  closeOtherPanels("notifications");
+  errorsFilter.value = null;
+  notificationsOpen.value = true;
+  store.markNotificationsRead();
+}
+
+function openProcessErrors(processId: string) {
+  closeOtherPanels("notifications");
+  errorsFilter.value = processId;
+  notificationsOpen.value = true;
+}
+
+/**
+ * "Review & add" on a scan notification: open the Add dialog prefilled. The
+ * notification is intentionally LEFT in place — it's only ever removed when the
+ * user explicitly dismisses it (or clears the list), so a stray/mis-click never
+ * loses the find before they've actually added anything.
+ */
+function reviewNotification(n: AppNotification) {
+  if (!n.scan) return;
+  addScanOnOpen.value = false;
+  addPrefillScan.value = n.scan;
+  addOpen.value = true;
+  notificationsOpen.value = false;
+}
+
+function onAddProcess(projectId: string) {
+  formMode.value = "add";
+  formProjectId.value = projectId;
+  formInitial.value = null;
+  formOpen.value = true;
+}
+
+function onEditProcess(projectId: string, process: ProcessView) {
+  formMode.value = "edit";
+  formProjectId.value = projectId;
+  formInitial.value = process;
+  formOpen.value = true;
+}
+
+/** Open the Add dialog, forcing a fresh open transition even if it's already showing. */
+async function reopenAdd() {
+  if (addOpen.value) {
+    addOpen.value = false;
+    await nextTick();
+  }
+  addOpen.value = true;
+}
+
+function onAddProject() {
+  addScanOnOpen.value = false;
+  addPrefillScan.value = null;
+  void reopenAdd();
+}
+
+function onScan() {
+  addPrefillScan.value = null;
+  addScanOnOpen.value = true;
+  void reopenAdd();
+}
+
+/** Sweep the machine on launch (if enabled) and offer configured/detectable projects. */
+async function autoScanOnStart() {
+  try {
+    if (!(await getSettings()).autoScan) return;
+    await store.loadIgnoredProjects();
+    // Thorough background sweep (server-owned "startup" preset: all drives, depth 12,
+    // ~30s budget). Deferred + notification-only, so the depth costs us nothing.
+    const result = await scanForDevWebUI({ preset: "startup", detectPackages: true });
+    const loadedFiles = new Set(projects.value.map((p) => p.path.toLowerCase()));
+    const loadedDirs = new Set(
+      projects.value.map((p) => p.path.replace(/[\\/][^\\/]+$/, "").toLowerCase()),
+    );
+    const fresh = result.files.filter((f) => !loadedFiles.has(f.path.toLowerCase()));
+    const ignored = new Set(store.ignoredProjects.map((p) => p.toLowerCase()));
+    const detected = (result.detected ?? []).filter(
+      (p) => !loadedDirs.has(p.path.toLowerCase()) && !ignored.has(p.path.toLowerCase()),
+    );
+    // Surface finds as a (non-intrusive) notification rather than hijacking with a dialog.
+    if (fresh.length || detected.length) store.notifyScan({ ...result, files: fresh, detected });
+  } catch {
+    /* scan is best-effort */
+  }
+}
+
+/** Run work when the browser is idle (or shortly after) — keeps it off the startup path. */
+function scheduleIdle(fn: () => void) {
+  const ric = (
+    window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }
+  ).requestIdleCallback;
+  if (ric) ric(fn, { timeout: 4000 });
+  else window.setTimeout(fn, 1500);
+}
+
+/**
+ * Load sync status on every mount, applying any pulled appearance. If the daemon
+ * just bounced us back from `/oauth/login` (`?connected=1` / `?connect=failed`),
+ * surface the outcome and strip the query param so a refresh doesn't re-trigger it.
+ */
+async function initSync() {
+  const params = new URLSearchParams(window.location.search);
+  const connectedFlag = params.get("connected");
+  const failedFlag = params.get("connect");
+  if (connectedFlag || failedFlag) {
+    params.delete("connected");
+    params.delete("connect");
+    const query = params.toString();
+    window.history.replaceState(null, "", window.location.pathname + (query ? `?${query}` : ""));
+  }
+  await store.loadSyncStatus({ apply: true });
+  if (connectedFlag === "1") toast.success(t("cloudSync.enableToggle"));
+  else if (failedFlag === "failed") toast.error(t("cloudSync.error"));
+}
+
+onMounted(async () => {
+  store.connect();
+  void store.loadSettings(); // pull monitorResources so the CPU/Mem columns reflect the saved toggle
+  void store.loadIgnoredProjects();
+  void initSync();
+  await store.refresh().catch(() => {}); // best-effort initial load — a failed fetch just leaves
+  // the empty/previous project list until the SSE stream or next poll catches it up
+  // Defer the machine sweep so the UI paints first (low-priority background scan).
+  scheduleIdle(() => {
+    store.pulseAppOpenedOnce();
+    void store.checkForUpdate();
+  });
+  scheduleIdle(() => void autoScanOnStart());
+});
+</script>
+
+<template>
+  <div
+    class="safe-bottom flex min-h-dvh flex-col transition-[padding] duration-300 ease-in-out"
+    :style="{ paddingRight: panelShiftPx ? `${panelShiftPx}px` : undefined }"
+  >
+    <TopBar
+      :connected="connected"
+      :processes="allProcesses"
+      @add="onAddProject"
+      @notifications="openNotifications"
+      @settings="openSettings"
+      @scan="onScan"
+    />
+
+    <main class="flex-1 py-6">
+      <AppContainer>
+      <div v-if="projects.length" v-auto-animate class="flex flex-col gap-4">
+        <ProjectPanel
+          v-for="proj in projects"
+          :key="proj.id"
+          :project="proj"
+          @logs="openLogs"
+          @add-process="onAddProcess"
+          @edit-process="onEditProcess"
+          @errors-process="openProcessErrors"
+        />
+      </div>
+
+      <div v-else class="mx-auto mt-28 flex max-w-md flex-col items-center gap-6 px-6 text-center">
+        <h2 class="text-xl font-semibold tracking-tight">{{ t("home.noProjectsYet") }}</h2>
+        <Button @click="onAddProject"><Plus class="size-4" /> {{ t("home.addProject") }}</Button>
+      </div>
+      </AppContainer>
+    </main>
+
+    <ProcessForm
+      v-model:open="formOpen"
+      :mode="formMode"
+      :project-id="formProjectId"
+      :initial="formInitial"
+    />
+    <AddProjectDialog
+      v-model:open="addOpen"
+      :scan-on-open="addScanOnOpen"
+      :prefill-scan="addPrefillScan"
+    />
+    <Settings v-model:open="settingsOpen" :side="panelSide" />
+    <LogDrawer v-model:open="drawerOpen" :process-id="selected" />
+    <NotificationsDrawer
+      v-model:open="notificationsOpen"
+      :process-id="errorsFilter"
+      @clear-filter="errorsFilter = null"
+      @review="reviewNotification"
+    />
+
+    <AppFooter />
+  </div>
+</template>

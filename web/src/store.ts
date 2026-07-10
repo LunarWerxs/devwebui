@@ -1,0 +1,563 @@
+import { defineStore } from "pinia";
+import { computed, ref, watch } from "vue";
+import { useEventSource, useLocalStorage } from "@vueuse/core";
+import * as api from "./api";
+import { useSelfUpdate } from "@/lib/useSelfUpdate";
+import { useTheme } from "@/lib/theme";
+import type { AddResult, DetectedProcess } from "./api";
+import type { LastCrash, ScanResult } from "./api";
+import type { SyncStatus } from "./api";
+import type { UpdateApplyResult, UpdateStatus } from "./api";
+import { MAX_LOG_LINES } from "../../shared/constants";
+import type {
+  AppNotification,
+  ErrorEvent,
+  LogLine,
+  ProcessView,
+  ProjectView,
+  SortDir,
+  SortKey,
+  StatusBucket,
+  ViewMode,
+} from "./types";
+
+const ALL_STATUS_BUCKETS: StatusBucket[] = ["running", "busy", "crashed", "stopped"];
+const VIEW_MODE_KEY = "devwebui.viewMode.v2";
+const LEGACY_VIEW_MODE_KEY = "devwebui.viewMode";
+let notifSeq = 0;
+let appOpenedPulsed = false;
+
+function parseViewMode(value: string | null): ViewMode | null {
+  return value === "cards" || value === "table" ? value : null;
+}
+
+function readSavedViewMode(): ViewMode | null {
+  try {
+    const saved = parseViewMode(localStorage.getItem(VIEW_MODE_KEY));
+    if (saved) return saved;
+    // The old key's "cards" value may have been written by the previous default.
+    return localStorage.getItem(LEGACY_VIEW_MODE_KEY) === "table" ? "table" : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedViewMode(mode: ViewMode) {
+  try {
+    localStorage.setItem(VIEW_MODE_KEY, mode);
+  } catch {
+    /* best-effort display preference */
+  }
+}
+
+/**
+ * The single Pinia store for DevWebUI (setup-store style, matching GitMob).
+ * Owns all reactive state + the SSE wiring; api.ts stays a pure fetch layer.
+ */
+export const useAppStore = defineStore("app", () => {
+  const projects = ref<ProjectView[]>([]);
+  const connected = ref(false);
+  const { updateStatus, updateChecking, updateApplying, checkForUpdate, applyUpdate } =
+    useSelfUpdate<UpdateStatus, UpdateApplyResult>(api);
+  const logs = ref<Record<string, LogLine[]>>({});
+  const errors = ref<ErrorEvent[]>([]);
+  /**
+   * Time-Travel Log Vault killer detail: the most recent "a process whose last run
+   * crashed is starting again" event (from SSE — covers auto-started processes with
+   * no HTTP response to carry this on). A component (AppShell) watches this and
+   * shows the dismissible hint toast; bumped with a fresh object reference each time
+   * so the same process crashing twice in a row still re-triggers the watcher.
+   */
+  const lastCrashEvent = ref<{ id: string; lastCrash: LastCrash } | null>(null);
+  /** Absolute dirs of detected projects the user dismissed (hidden from the background scan). */
+  const ignoredProjects = ref<string[]>([]);
+
+  /**
+   * Whether the daemon is sampling per-process CPU + memory. Mirrors the server's
+   * `monitorResources` setting; when off, the table/card hide those columns (and the
+   * daemon spawns no system queries). Loaded on startup and refreshed after a save.
+   */
+  const monitorResources = ref(true);
+  /**
+   * Host used when opening a process from its title (`http://<host>:<port>`).
+   * Mirrors the server's `linkHost` setting; a blank value means "use this page's
+   * own hostname" (resolved at the link site). Loaded on startup, refreshed on save.
+   */
+  const linkHost = ref("");
+  /**
+   * Opt-in silent auto-update: the daemon checks the update remote on a schedule and, when a
+   * newer commit is available on a CLEAN tree, applies it and self-relaunches. Default OFF (it
+   * restarts the daemon unattended). Mirrors the server's `autoUpdate`/`autoUpdateIntervalSecs`
+   * settings. Loaded on startup, refreshed after a save.
+   */
+  const autoUpdate = ref(false);
+  const autoUpdateIntervalSecs = ref(21_600);
+  /** Toggle auto-update (and optionally its check cadence in seconds); reflects the saved value. */
+  async function setAutoUpdate(enabled: boolean, intervalSecs?: number) {
+    const saved = await api.setAutoUpdate(enabled, intervalSecs);
+    autoUpdate.value = saved.autoUpdate;
+    autoUpdateIntervalSecs.value = saved.autoUpdateIntervalSecs;
+    return saved;
+  }
+  async function loadSettings() {
+    try {
+      const s = await api.getSettings();
+      monitorResources.value = s.monitorResources;
+      linkHost.value = s.linkHost ?? ""; // blank → resolved to the page host at the link site; tolerate an older daemon that omits the key
+      autoUpdate.value = s.autoUpdate ?? false;
+      autoUpdateIntervalSecs.value = s.autoUpdateIntervalSecs ?? 21_600;
+    } catch {
+      /* keep the optimistic default — Settings still reads/writes directly */
+    }
+  }
+
+  /**
+   * In-app notifications (e.g. the startup scan found new projects). Ephemeral —
+   * kept in memory only, since the auto-scan regenerates them on next launch.
+   */
+  const notifications = ref<AppNotification[]>([]);
+  const unreadNotifications = computed(() => notifications.value.filter((n) => !n.read).length);
+
+  /**
+   * Record that the startup scan found new configured or detectable projects.
+   * The notification carries the full `scan` so the drawer can list exactly WHAT was
+   * found (names + paths + process counts) and localize its own title/body.
+   */
+  function notifyScan(scan: ScanResult) {
+    if (!scan.files.length && !(scan.detected?.length ?? 0)) return;
+    // One rolling "scan" notification — a re-scan refreshes it rather than stacking.
+    const existing = notifications.value.find((n) => n.kind === "scan");
+    if (existing) {
+      existing.scan = scan;
+      existing.ts = Date.now();
+      existing.read = false;
+    } else {
+      notifications.value.unshift({
+        id: `scan-${Date.now()}-${notifSeq++}`,
+        kind: "scan",
+        ts: Date.now(),
+        read: false,
+        scan,
+      });
+    }
+  }
+
+  function dismissNotification(id: string) {
+    notifications.value = notifications.value.filter((n) => n.id !== id);
+  }
+  function markNotificationsRead() {
+    for (const n of notifications.value) n.read = true;
+  }
+  function clearNotifications() {
+    notifications.value = [];
+  }
+
+  /**
+   * How every project panel lays out its processes — "cards" (the grid) or
+   * "table" (a dense, scan-friendly row per process). Without an explicit user
+   * choice, large projects default to the table so stacks of 4+ servers scan well.
+   */
+  const viewModePreference = ref<ViewMode | null>(readSavedViewMode());
+  const defaultViewMode = computed<ViewMode>(() =>
+    projects.value.some((p) => p.processes.length > 3) ? "table" : "cards",
+  );
+  const viewMode = computed<ViewMode>({
+    get: () => viewModePreference.value ?? defaultViewMode.value,
+    set: (mode) => {
+      viewModePreference.value = mode;
+      writeSavedViewMode(mode);
+    },
+  });
+
+  /**
+   * How every panel orders + filters its processes. Shared across the card and
+   * table views and persisted, so the table headers and the toolbar menu stay
+   * in sync and the choice survives a reload. Default: alphabetical by name.
+   */
+  // Default ordering: status first (running on top, then busy/crashed/idle), each
+  // group sub-sorted by name (arrangeProcesses tie-breaks on name). Key bumped to
+  // .v2 so the new default replaces the old "name" default for existing users.
+  const sortKey = useLocalStorage<SortKey>("devwebui.sortKey.v2", "status");
+  const sortDir = useLocalStorage<SortDir>("devwebui.sortDir.v2", "asc");
+  const statusFilter = useLocalStorage<StatusBucket[]>("devwebui.statusFilter", [
+    ...ALL_STATUS_BUCKETS,
+  ]);
+
+  /** Click a column: same key flips direction, a new key starts ascending. */
+  function toggleSort(key: SortKey) {
+    if (sortKey.value === key) {
+      sortDir.value = sortDir.value === "asc" ? "desc" : "asc";
+    } else {
+      sortKey.value = key;
+      sortDir.value = "asc";
+    }
+  }
+
+  /** Add/remove a status bucket from the filter (never let it reach empty). */
+  function toggleStatusFilter(bucket: StatusBucket, on: boolean) {
+    const next = new Set(statusFilter.value);
+    if (on) next.add(bucket);
+    else next.delete(bucket);
+    statusFilter.value = next.size
+      ? ALL_STATUS_BUCKETS.filter((b) => next.has(b))
+      : [...ALL_STATUS_BUCKETS];
+  }
+
+  /** A single shared clock so uptime counters tick without per-card timers. */
+  const now = ref(Date.now());
+  setInterval(() => (now.value = Date.now()), 1000);
+
+  /** Flat view of every process across all projects (for global counts). */
+  const allProcesses = computed(() => projects.value.flatMap((p) => p.processes));
+
+  /** Number of distinct error records per process id, for per-server indicators. */
+  const errorCountByProcess = computed(() => {
+    const m: Record<string, number> = {};
+    for (const e of errors.value) m[e.processId] = (m[e.processId] ?? 0) + 1;
+    return m;
+  });
+
+  /**
+   * `errors` is server-authoritative (the daemon re-pushes the whole list over SSE),
+   * so both removals below drop records LOCALLY first for instant feedback, then fire
+   * the daemon call in the background — the next SSE snapshot confirms it. Without this
+   * the drawer's Clear button appeared to hang until the ~2s monitoring tick echoed the
+   * cleared list back; if the daemon call fails, that same SSE snapshot resurfaces the
+   * record (self-healing), so no toast/await is needed on the happy path.
+   */
+  function dismissError(fingerprint: string) {
+    errors.value = errors.value.filter((e) => e.fingerprint !== fingerprint);
+    void api.dismissError(fingerprint).catch(() => {});
+  }
+  function clearErrorsLocal(processId?: string) {
+    errors.value = processId ? errors.value.filter((e) => e.processId !== processId) : [];
+    void api.clearErrors(processId).catch(() => {}); // self-healing — doc block above: next SSE snapshot resurfaces on failure
+  }
+
+  function applyStatus(p: ProcessView | null) {
+    if (!p) return;
+    const proj = projects.value.find((x) => x.id === p.projectId);
+    if (!proj) return;
+    const i = proj.processes.findIndex((x) => x.id === p.id);
+    if (i >= 0) proj.processes[i] = p;
+    else proj.processes.push(p);
+  }
+
+  async function refresh() {
+    const [p, e] = await Promise.all([api.getProjects(), api.getErrors()]);
+    projects.value = p;
+    errors.value = e;
+  }
+
+  async function recordPulse(event: string, properties?: Record<string, unknown>) {
+    try {
+      await api.recordPulse(event, properties);
+    } catch {
+      /* pulse is non-critical */
+    }
+  }
+
+  function pulseAppOpenedOnce() {
+    if (appOpenedPulsed) return;
+    appOpenedPulsed = true;
+    void recordPulse("app_opened");
+  }
+
+  function connect() {
+    const { status, data, event } = useEventSource(
+      "/api/stream",
+      ["projects", "errors", "status", "log", "lastCrash"],
+      { autoReconnect: { retries: -1, delay: 2500 } },
+    );
+    watch(status, (s) => (connected.value = s === "OPEN"));
+    watch(data, (raw) => {
+      if (raw == null) return;
+      const parsed = JSON.parse(raw);
+      switch (event.value) {
+        case "projects":
+          projects.value = parsed;
+          break;
+        case "errors":
+          errors.value = parsed;
+          break;
+        case "status":
+          applyStatus(parsed);
+          break;
+        case "log": {
+          // The daemon batches log lines (backpressure): one event carries many lines,
+          // possibly spanning processes. Route each to its own process buffer.
+          const batch = parsed as LogLine[];
+          for (const l of batch) {
+            logs.value[l.id] ??= [];
+            const arr = logs.value[l.id];
+            arr.push(l);
+            if (arr.length > MAX_LOG_LINES) arr.splice(0, arr.length - MAX_LOG_LINES);
+          }
+          break;
+        }
+        case "lastCrash":
+          lastCrashEvent.value = parsed as { id: string; lastCrash: LastCrash };
+          break;
+      }
+    });
+  }
+
+  async function fetchLogs(id: string) {
+    const data = await api.getProcessLogs(id);
+    logs.value[id] = data.lines;
+  }
+
+  // ---- project mutations: hit the daemon, then refresh from the source of truth ----
+  async function removeProject(id: string) {
+    await api.removeProjectRequest(id);
+    await refresh();
+  }
+
+  /** Toggle a process's starred flag (SSE pushes the reloaded project back). */
+  async function toggleStar(p: ProcessView) {
+    await api.setProcessStarred(p.projectId, p.localId, !p.starred);
+  }
+
+  // ---- detected-project ignore list ----
+  async function loadIgnoredProjects() {
+    try {
+      ignoredProjects.value = await api.getIgnoredProjects();
+    } catch {
+      /* best-effort */
+    }
+  }
+  async function ignoreProject(dir: string) {
+    await api.ignoreProjectRequest(dir);
+    if (!ignoredProjects.value.some((p) => p.toLowerCase() === dir.toLowerCase()))
+      ignoredProjects.value = [...ignoredProjects.value, dir];
+  }
+  async function unignoreProject(dir: string) {
+    await api.unignoreProjectRequest(dir);
+    ignoredProjects.value = ignoredProjects.value.filter(
+      (p) => p.toLowerCase() !== dir.toLowerCase(),
+    );
+  }
+
+  async function browseForProject(): Promise<AddResult> {
+    const res = await api.browseProjectRequest();
+    if (res.ok) await refresh();
+    return res;
+  }
+
+  async function loadProjectByPath(path: string): Promise<AddResult> {
+    const res = await api.loadProjectRequest(path);
+    if (res.ok) await refresh();
+    return res;
+  }
+
+  async function cloneProject(url: string, dest: string): Promise<AddResult> {
+    const res = await api.cloneProjectRequest(url, dest);
+    if (res.ok) await refresh();
+    return res;
+  }
+
+  async function scaffoldProject(
+    dir: string,
+    fileName: string,
+    project: { name: string; processes: DetectedProcess[] },
+  ): Promise<AddResult> {
+    const res = await api.scaffoldProjectRequest(dir, fileName, project);
+    if (res.ok) await refresh();
+    return res;
+  }
+
+  /** Retire a folder's external (VS Code) dev-server auto-start so DevWebUI owns it. */
+  async function takeOverAutostart(dir: string) {
+    return api.takeOverAutostartRequest(dir);
+  }
+
+  // ---- "Sync my settings with Connections" (optional, opt-in) ----
+  const { mode: themeMode, setTheme } = useTheme();
+
+  const syncStatus = ref<SyncStatus | null>(null);
+  const syncLoading = ref(false);
+  const syncError = ref<string | null>(null);
+  // Debounce timer for theme-change → pushAppearance.
+  let syncPushTimer: ReturnType<typeof setTimeout> | undefined;
+  // Set right before applying a pulled appearance, so the theme `watch` below
+  // doesn't turn right around and push the value it just received.
+  let applyingRemote = false;
+
+  /** The minimal portable appearance blob synced across devices: theme mode only. */
+  function currentAppearance(): Record<string, unknown> {
+    return { theme: themeMode.value };
+  }
+
+  /** Apply a pulled appearance blob to the local theme composable. */
+  function applyAppearance(appearance: Record<string, unknown> | null | undefined) {
+    if (!appearance) return;
+    const theme = appearance.theme;
+    if (theme === "light" || theme === "dark" || theme === "system") {
+      applyingRemote = true;
+      setTheme(theme);
+      // Reset on next tick — the theme `watch` handler below runs synchronously
+      // off this same assignment, so it's safe to clear right after.
+      queueMicrotask(() => {
+        applyingRemote = false;
+      });
+    }
+  }
+
+  function absorbSyncResult(res: api.SyncResult) {
+    if (res.ok) {
+      syncStatus.value = res;
+      syncError.value = null;
+    } else {
+      syncError.value = res.error;
+    }
+    return res;
+  }
+
+  /** Fetch the current sync status; call on mount and after actions. */
+  async function loadSyncStatus(opts: { apply?: boolean } = {}) {
+    syncLoading.value = true;
+    try {
+      const s = await api.getSyncStatus();
+      syncStatus.value = s;
+      syncError.value = null;
+      if (opts.apply) applyAppearance(s.appearance);
+    } catch (e) {
+      syncError.value = e instanceof Error ? e.message : String(e);
+    } finally {
+      syncLoading.value = false;
+    }
+  }
+
+  /** Turn sync on, seeding it with the current local appearance. */
+  async function enableSync() {
+    syncLoading.value = true;
+    try {
+      const res = await api.setSync({ enabled: true, appearance: currentAppearance() });
+      absorbSyncResult(res);
+      if (res.ok) applyAppearance(res.appearance);
+    } catch (e) {
+      syncError.value = e instanceof Error ? e.message : String(e);
+    } finally {
+      syncLoading.value = false;
+    }
+  }
+
+  /** Turn sync off. Pass `forget: true` to also disconnect (delete the remote doc + token). */
+  async function disableSync(forget = false) {
+    syncLoading.value = true;
+    try {
+      const res = await api.setSync({ enabled: false, forget });
+      absorbSyncResult(res);
+    } catch (e) {
+      syncError.value = e instanceof Error ? e.message : String(e);
+    } finally {
+      syncLoading.value = false;
+    }
+  }
+
+  async function pullSync() {
+    syncLoading.value = true;
+    try {
+      const res = await api.syncPull();
+      absorbSyncResult(res);
+      if (res.ok) applyAppearance(res.appearance);
+    } catch (e) {
+      syncError.value = e instanceof Error ? e.message : String(e);
+    } finally {
+      syncLoading.value = false;
+    }
+  }
+
+  async function pushSync() {
+    syncLoading.value = true;
+    try {
+      absorbSyncResult(await api.syncPush());
+    } catch (e) {
+      syncError.value = e instanceof Error ? e.message : String(e);
+    } finally {
+      syncLoading.value = false;
+    }
+  }
+
+  /** Push the current local appearance (used by the debounced theme watcher below). */
+  async function pushAppearance() {
+    try {
+      absorbSyncResult(await api.setSync({ appearance: currentAppearance() }));
+    } catch (e) {
+      syncError.value = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  // When the user changes the theme AND sync is enabled+connected, debounce and push —
+  // but never echo a value we just applied from a pull/enable (`applyingRemote`).
+  watch(themeMode, () => {
+    if (applyingRemote) return;
+    if (!syncStatus.value?.enabled || !syncStatus.value?.connected) return;
+    clearTimeout(syncPushTimer);
+    syncPushTimer = setTimeout(() => {
+      void pushAppearance();
+    }, 800);
+  });
+
+  return {
+    projects,
+    connected,
+    updateStatus,
+    updateChecking,
+    updateApplying,
+    logs,
+    errors,
+    lastCrashEvent,
+    notifications,
+    unreadNotifications,
+    monitorResources,
+    linkHost,
+    autoUpdate,
+    autoUpdateIntervalSecs,
+    setAutoUpdate,
+    loadSettings,
+    notifyScan,
+    dismissNotification,
+    markNotificationsRead,
+    clearNotifications,
+    viewMode,
+    sortKey,
+    sortDir,
+    statusFilter,
+    toggleSort,
+    toggleStatusFilter,
+    now,
+    allProcesses,
+    errorCountByProcess,
+    dismissError,
+    clearErrorsLocal,
+    refresh,
+    toggleStar,
+    ignoredProjects,
+    loadIgnoredProjects,
+    ignoreProject,
+    unignoreProject,
+    checkForUpdate,
+    applyUpdate,
+    recordPulse,
+    pulseAppOpenedOnce,
+    connect,
+    fetchLogs,
+    removeProject,
+    browseForProject,
+    loadProjectByPath,
+    cloneProject,
+    scaffoldProject,
+    takeOverAutostart,
+    syncStatus,
+    syncLoading,
+    syncError,
+    loadSyncStatus,
+    enableSync,
+    disableSync,
+    pushSync,
+    pullSync,
+    pushAppearance,
+    applyAppearance,
+  };
+});

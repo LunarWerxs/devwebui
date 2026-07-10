@@ -1,0 +1,55 @@
+// ---------------------------------------------------------------------------
+// .devwebui file schema — the single source of truth for the on-disk format,
+// shared so the daemon validates against the same shape the DTOs describe.
+//
+// This file imports `zod` (a server dependency). The WEB bundle must NEVER
+// import this module at runtime — it only consumes the pure `import type` DTOs
+// from dto.ts. Keep zod out of the web by never importing schema.ts from web.
+// ---------------------------------------------------------------------------
+import { z } from "zod";
+import type { ProcessInput } from "./dto";
+
+export const ID_RE = /^[a-zA-Z0-9._-]+$/;
+
+export const ProcessSchema = z.object({
+  id: z.string().min(1).regex(ID_RE, "id may only contain letters, numbers, . _ -"),
+  name: z.string().min(1),
+  command: z.string().min(1),
+  cwd: z.string().optional(),
+  color: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  autostart: z.boolean().optional(),
+  starred: z.boolean().optional(),
+  port: z.number().int().positive().optional(),
+  url: z
+    .string()
+    // Reject any non-http(s) URI scheme (javascript:, data:, file:, …) so a stored
+    // `url` can never become an XSS/redirect vector; an http(s):// URL or a plain
+    // path (no scheme) is allowed.
+    .refine((v) => /^https?:\/\//i.test(v) || !/^[a-z][a-z0-9+.-]*:/i.test(v), {
+      message: "url must be an http(s):// URL or a path",
+    })
+    .optional(),
+  runtime: z.enum(["node", "bun"]).optional(),
+  // Dependency-ordered startup: wait for a port to be listening before spawning this
+  // process. A number waits on that literal port; a string names a sibling process's
+  // `id` (in this same file) and waits on THAT process's declared `port` — simpler than
+  // a separate "depends on" field since "wait for the port" is the actual behavior.
+  waitForPort: z.union([z.number().int().positive(), z.string().min(1)]).optional(),
+});
+
+export const DevWebUIFileSchema = z.object({
+  name: z.string().min(1),
+  processes: z.array(ProcessSchema).min(1),
+});
+
+export type DevWebUIProcess = z.infer<typeof ProcessSchema>;
+export type DevWebUIFile = z.infer<typeof DevWebUIFileSchema>;
+
+// Compile-time guard: the inferred schema type and the hand-written `ProcessInput`
+// DTO must stay assignment-compatible, so the schema (SSOT) and the DTO can't
+// drift. `env` is schema-only (the GUI doesn't edit it), which is why this is a
+// one-directional `extends` check rather than a mutual equality.
+type _SchemaMatchesProcessInput = DevWebUIProcess extends ProcessInput ? true : false;
+const _check: _SchemaMatchesProcessInput = true;
+void _check;

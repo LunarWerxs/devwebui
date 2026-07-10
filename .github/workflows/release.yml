@@ -1,0 +1,82 @@
+name: Release
+
+# Tag a version (e.g. `git tag v0.1.0 && git push --tags`) to build the compiled binary on
+# each OS and publish them to a GitHub Release. The single self-contained binary IS the product,
+# so it ships as a first-class, CI-produced artifact rather than a local build.
+#
+# NOTE: arch labels below are nominal (ubuntu→x64, macos-latest→arm64). Adjust the matrix /
+# `bun build --compile --target` in scripts/build.ts if you need additional arch variants.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: devwebui-linux-x64
+          - os: macos-latest
+            asset: devwebui-macos-arm64
+          - os: windows-latest
+            asset: devwebui-windows-x64.exe
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile # root workspace install covers web/ too
+      - run: bun run dist # scripts/build.ts — web build + `bun build --compile`
+      - name: Stage compiled binary
+        shell: bash
+        run: |
+          mkdir -p out
+          if [ -f dist/devwebui.exe ]; then
+            bin=dist/devwebui.exe
+          elif [ -f dist/devwebui ]; then
+            bin=dist/devwebui
+          else
+            echo "::error::no compiled binary found in dist/"; ls -la dist || true; exit 1
+          fi
+          cp "$bin" "out/${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: out/${{ matrix.asset }}
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Release notes from CHANGELOG
+        shell: bash
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v ver="$ver" '
+            index($0, "## [" ver "]") == 1 { grab = 1; next }
+            grab && index($0, "## [") == 1 { exit }
+            grab { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          [ -s RELEASE_NOTES.md ] || echo "Release ${GITHUB_REF_NAME}." > RELEASE_NOTES.md
+          echo "----- release notes -----"; cat RELEASE_NOTES.md
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          body_path: RELEASE_NOTES.md
+          fail_on_unmatched_files: true

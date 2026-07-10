@@ -1,0 +1,142 @@
+// ---------------------------------------------------------------------------
+// External auto-start "take over" — some repos launch their dev server from
+// OUTSIDE DevWebUI: VS Code's tasks.json (`runOptions.runOn: "folderOpen"`) or
+// the "Vite" VS Code extension (`vite.autoStart: true`). When that happens the
+// external launcher and DevWebUI both try to bind the same port, and DevWebUI's
+// process loses the race and "crashes" on startup. This module detects those
+// triggers and — on request — retires them (backing the file up first) so
+// DevWebUI is the single source of truth for starting the dev server.
+//
+// Edits are deliberately SURGICAL string replacements, not a parse+reserialize,
+// so comments, key order, and formatting in the user's .vscode files survive:
+//   tasks.json    "runOn": "folderOpen"   -> "runOn": "default"  (manual-run only)
+//   settings.json "vite.autoStart": true  -> "vite.autoStart": false
+// ---------------------------------------------------------------------------
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { parse as parseJsonc } from "jsonc-parser";
+import type { AutostartTrigger, TakeOverResult } from "../../shared/dto";
+
+export type { AutostartKind, AutostartTrigger, TakeOverResult } from "../../shared/dto";
+
+const BACKUP_SUFFIX = ".devwebui-bak";
+
+// VS Code's .vscode/*.json are JSONC (// + /* */ comments, trailing commas). Parse
+// with microsoft's jsonc-parser (the de-facto standard scanner, the same VS Code
+// itself uses) rather than a hand-rolled comment/trailing-comma stripper. Tolerant:
+// malformed input yields null, treated as "no triggers".
+function readJsonc<T>(file: string): T | null {
+  try {
+    const parsed = parseJsonc(readFileSync(file, "utf8"));
+    return (parsed ?? null) as T | null;
+  } catch {
+    return null; // unreadable — treated as "no triggers"
+  }
+}
+
+type VsCodeTask = {
+  label?: string;
+  command?: string;
+  args?: unknown[];
+  runOptions?: { runOn?: string };
+};
+
+/** Inspect a folder's .vscode config for dev servers that start outside DevWebUI. */
+export function detectAutostartTriggers(dir: string): AutostartTrigger[] {
+  const out: AutostartTrigger[] = [];
+
+  const tasksFile = path.join(dir, ".vscode", "tasks.json");
+  if (existsSync(tasksFile)) {
+    const j = readJsonc<{ tasks?: VsCodeTask[] }>(tasksFile);
+    for (const t of j?.tasks ?? []) {
+      if (t && typeof t === "object" && t.runOptions?.runOn === "folderOpen") {
+        const cmd = [t.command, ...(Array.isArray(t.args) ? t.args.map(String) : [])]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+        out.push({
+          kind: "vscode-task",
+          file: tasksFile,
+          label: t.label ? `VS Code task “${t.label}”` : "VS Code task",
+          detail: cmd ? `runs \`${cmd}\` when the folder opens` : "runs when the folder opens",
+        });
+      }
+    }
+  }
+
+  const settingsFile = path.join(dir, ".vscode", "settings.json");
+  if (existsSync(settingsFile)) {
+    const j = readJsonc<Record<string, unknown>>(settingsFile);
+    if (j && j["vite.autoStart"] === true) {
+      const cmd = typeof j["vite.devCommand"] === "string" ? (j["vite.devCommand"] as string) : "";
+      out.push({
+        kind: "vite-extension",
+        file: settingsFile,
+        label: "“Vite” VS Code extension",
+        detail: cmd
+          ? `auto-starts \`${cmd}\` when the folder opens`
+          : "auto-starts the dev server when the folder opens",
+      });
+    }
+  }
+
+  return out;
+}
+
+/** Back a file up exactly once (preserve the pristine original across re-runs). */
+function backupOnce(file: string): string | null {
+  const bak = file + BACKUP_SUFFIX;
+  try {
+    if (!existsSync(bak)) copyFileSync(file, bak);
+    return bak;
+  } catch {
+    return null;
+  }
+}
+
+/** Retire every detected external auto-start trigger under `dir`. Backs up first. */
+export function takeOverAutostart(dir: string): TakeOverResult {
+  const disabled: AutostartTrigger[] = [];
+  const backups: string[] = [];
+  const skipped: { file: string; reason: string }[] = [];
+
+  // Group triggers by file so each file is backed up + rewritten once.
+  const byFile = new Map<string, AutostartTrigger[]>();
+  for (const t of detectAutostartTriggers(dir)) {
+    const arr = byFile.get(t.file);
+    if (arr) arr.push(t);
+    else byFile.set(t.file, [t]);
+  }
+
+  for (const [file, ts] of byFile) {
+    let text: string;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch (e) {
+      skipped.push({ file, reason: (e as Error).message });
+      continue;
+    }
+
+    let next = text;
+    if (ts.some((t) => t.kind === "vscode-task"))
+      next = next.replace(/("runOn"\s*:\s*")folderOpen(")/g, "$1default$2");
+    if (ts.some((t) => t.kind === "vite-extension"))
+      next = next.replace(/("vite\.autoStart"\s*:\s*)true\b/g, "$1false");
+
+    if (next === text) {
+      skipped.push({ file, reason: "nothing to change (already retired?)" });
+      continue;
+    }
+
+    const bak = backupOnce(file);
+    if (bak) backups.push(bak);
+    try {
+      writeFileSync(file, next);
+      disabled.push(...ts);
+    } catch (e) {
+      skipped.push({ file, reason: (e as Error).message });
+    }
+  }
+
+  return { disabled, backups, skipped };
+}

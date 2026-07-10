@@ -1,0 +1,284 @@
+import { EventEmitter } from "node:events";
+import treeKill from "tree-kill";
+import { diagnose, type Diagnosis } from "../diagnose";
+import { ErrorRecorder, type ErrorInfo } from "../errors";
+import { readLastCrash, tailLog, type LastCrash } from "../log-vault";
+import type { RuntimePref } from "../runtime";
+import { getEnabledOverride, getProjectOverride } from "../state";
+import type { LogLine, ProcessDef, ProcessView, ProjectView, Status } from "../types";
+import { toProcessView } from "../process-view";
+import { TICK_INTERVAL, METRICS_INTERVAL, type Entry, type Project } from "./types";
+import { LogBuffer } from "../log-buffer";
+
+/**
+ * Shared state + the small, self-contained primitives every other manager
+ * concern (monitoring, lifecycle, projects) builds on: entry/project maps,
+ * the error recorder, emit/status plumbing, and the enable/disable toggles.
+ *
+ * `tick`/`metricsTick` are declared abstract here (and wired up by the
+ * constructor + `applyMonitorResources`) because their real implementation —
+ * the port/metrics polling loop — lives in `ManagerWithMonitoring`.
+ */
+export abstract class ManagerBase extends EventEmitter {
+  protected entries = new Map<string, Entry>();
+  protected projects = new Map<string, Project>();
+  protected errorsDirty = false;
+  protected errors = new ErrorRecorder(() => (this.errorsDirty = true));
+  // Declared here (rather than in ManagerWithMonitoring, which is all that reads them)
+  // so they initialize before this base constructor's call to `applyMonitorResources()`
+  // — a subclass's own field initializers only run *after* its `super()` call returns.
+  protected tickRunning = false;
+  protected metricsRunning = false;
+  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private metricsTimer: ReturnType<typeof setInterval> | null = null;
+  protected queuedStarts = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Live-log backpressure: buffers child output, emits it in coalesced batches. */
+  protected logBatcher = new LogBuffer((batch) => this.emit("log", batch));
+  /** Default runtime for processes that don't pin their own. */
+  globalRuntime: RuntimePref = "auto";
+  /** Free a process's declared port (kill whatever holds it) right before starting it. */
+  freePortOnStart = false;
+  /** Sample per-process CPU + memory. Off = no system queries spawned at all. */
+  monitorResources = true;
+
+  constructor() {
+    super();
+    this.tickTimer = setInterval(() => void this.tick(), TICK_INTERVAL);
+    this.applyMonitorResources();
+  }
+
+  /** Stop manager-owned timers. Primarily used by tests and short-lived embedders. */
+  dispose(): void {
+    if (this.tickTimer) {
+      clearInterval(this.tickTimer);
+      this.tickTimer = null;
+    }
+    if (this.metricsTimer) {
+      clearInterval(this.metricsTimer);
+      this.metricsTimer = null;
+    }
+    for (const timer of this.queuedStarts.values()) clearTimeout(timer);
+    this.queuedStarts.clear();
+  }
+
+  /** Implemented by `ManagerWithMonitoring`: the port-probe + error-flush loop tick. */
+  protected abstract tick(): Promise<void>;
+  /** Implemented by `ManagerWithMonitoring`: the batched CPU/memory sampling loop tick. */
+  protected abstract metricsTick(): Promise<void>;
+
+  /**
+   * Start or stop the resource-metrics loop to match `monitorResources`. Idempotent —
+   * safe to call on startup and on every settings change. When turning off, we null out
+   * the last-known CPU/memory and push that to the GUI so the columns go blank.
+   */
+  applyMonitorResources(): void {
+    if (this.monitorResources) {
+      if (this.metricsTimer) return;
+      this.metricsTimer = setInterval(() => void this.metricsTick(), METRICS_INTERVAL);
+      void this.metricsTick(); // sample once now so values appear without a 10s wait
+    } else if (this.metricsTimer) {
+      clearInterval(this.metricsTimer);
+      this.metricsTimer = null;
+      this.clearMetrics();
+    }
+  }
+
+  /** Blank out CPU/memory everywhere (metrics turned off, or no longer sampling). */
+  private clearMetrics(): void {
+    for (const e of this.entries.values()) {
+      if (e.cpu === null && e.memory === null) continue;
+      e.cpu = null;
+      e.memory = null;
+      this.emitStatus(e);
+    }
+  }
+
+  // ---- error log --------------------------------------------------------
+  listErrors() {
+    return this.errors.list();
+  }
+
+  clearErrors(processId?: string): void {
+    this.errors.clear(processId);
+  }
+
+  dismissError(fingerprint: string): boolean {
+    return this.errors.dismiss(fingerprint);
+  }
+
+  /**
+   * MCP-Native Incident Autopilot: correlate this process's live status/exit
+   * code, its de-duped error records, and (via `diagnose()`) port ownership +
+   * its own script/command definition into a root-cause guess + remediation
+   * suggestion. Returns null for an unknown process id.
+   */
+  async diagnoseProcess(id: string): Promise<Diagnosis | null> {
+    const e = this.entries.get(id);
+    if (!e) return null;
+    const errors = this.errors.list().filter((err) => err.processId === id);
+    // Feed the Log Vault's file tail in as a fallback evidence source (used only when
+    // the de-duped error log above is empty — see diagnose()'s heuristic 2).
+    const logTail = tailLog(id, 20);
+    return diagnose({ def: e.def, status: e.status, exitCode: e.exitCode, errors, logTail });
+  }
+
+  protected errorInfo(e: Entry): ErrorInfo {
+    const d = e.def;
+    return {
+      processId: d.id,
+      localId: d.localId,
+      processName: d.name,
+      projectId: d.projectId,
+      projectName: d.projectName,
+    };
+  }
+
+  // ---- processes: reads ---------------------------------------------------
+  list(): ProcessView[] {
+    return [...this.entries.keys()].map((id) => this.view(id)!);
+  }
+
+  view(id: string): ProcessView | null {
+    const e = this.entries.get(id);
+    if (!e) return null;
+    return toProcessView(e.def, e, this.processEnabled(e.def));
+  }
+
+  getLogs(id: string): LogLine[] {
+    return this.entries.get(id)?.logs ?? [];
+  }
+
+  /**
+   * Tail the on-disk rotating log file for a process (survives daemon restarts and the
+   * in-memory 500-line cap) — the Time-Travel Log Vault. Returns [] for an unknown id
+   * or a process that hasn't logged anything yet.
+   */
+  getLogFileTail(id: string, lines: number): string[] {
+    if (!this.entries.has(id)) return [];
+    return tailLog(id, lines);
+  }
+
+  /** The most recent crash's exit metadata + stderr tail for a process, or null if none recorded. */
+  getLastCrash(id: string): LastCrash | null {
+    return readLastCrash(id);
+  }
+
+  // ---- enable/disable: PERSISTED PREFERENCE ONLY ---------------------------
+  // Toggling never starts or stops a live process (use start/stop for that). It
+  // only records what should auto-start next time the project loads.
+  /** A process's own toggle: explicit override, else its `autostart` default. */
+  private processEnabled(def: ProcessDef): boolean {
+    return getEnabledOverride(def.id) ?? !!def.autostart;
+  }
+
+  /** A project's master switch: explicit override, else ON. */
+  private projectEnabled(projectId: string): boolean {
+    return getProjectOverride(projectId) ?? true;
+  }
+
+  /** Auto-start on load only when BOTH the project switch and the process toggle are on. */
+  protected willAutostart(def: ProcessDef): boolean {
+    return this.projectEnabled(def.projectId) && this.processEnabled(def);
+  }
+
+  // ---- projects: reads ----------------------------------------------------
+  getProjectPath(id: string): string | null {
+    return this.projects.get(id)?.path ?? null;
+  }
+
+  listProjects(): ProjectView[] {
+    return [...this.projects.values()].map((p) => ({
+      id: p.id,
+      name: p.name,
+      path: p.path,
+      enabled: this.projectEnabled(p.id),
+      processes: p.processIds.map((pid) => this.view(pid)!).filter(Boolean),
+    }));
+  }
+
+  /** Find a managed entry currently running as `pid` (so we can stop it cleanly vs killing it). */
+  protected entryByPid(pid: number): Entry | undefined {
+    for (const e of this.entries.values()) if (e.pid === pid) return e;
+    return undefined;
+  }
+
+  // ---- internals --------------------------------------------------------
+  protected newEntry(def: ProcessDef): Entry {
+    return {
+      def,
+      status: "stopped",
+      child: null,
+      pid: null,
+      startedAt: null,
+      restarts: 0,
+      exitCode: null,
+      cpu: null,
+      memory: null,
+      portInUse: false,
+      waitingOnPort: null,
+      logs: [],
+      recentStderr: [],
+      stopping: false,
+      pendingStart: false,
+      exitWaiters: [],
+      stopTimer: null,
+    };
+  }
+
+  protected discardEntry(e: Entry): void {
+    const pid = e.pid;
+    this.cancelQueuedStart(e.def.id);
+    e.stopping = true;
+    e.pendingStart = false; // a pending free-port/wait-for-port callback will bail (entry no longer current)
+    e.waitingOnPort = null;
+    this.clearStopTimer(e);
+    e.child = null;
+    e.pid = null;
+    e.cpu = null;
+    e.memory = null;
+    e.startedAt = null;
+    this.resolveExitWaiters(e);
+    if (pid) {
+      try {
+        treeKill(pid, "SIGKILL", () => {});
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  protected emitProjects(): void {
+    this.emit("projects", this.listProjects());
+  }
+
+  protected setStatus(e: Entry, status: Status): void {
+    e.status = status;
+    this.emitStatus(e);
+  }
+
+  protected emitStatus(e: Entry): void {
+    if (this.entries.get(e.def.id) !== e) return;
+    const view = this.view(e.def.id);
+    if (view) this.emit("status", view);
+  }
+
+  protected clearStopTimer(e: Entry): void {
+    if (!e.stopTimer) return;
+    clearTimeout(e.stopTimer);
+    e.stopTimer = null;
+  }
+
+  protected resolveExitWaiters(e: Entry): void {
+    const waiters = e.exitWaiters;
+    e.exitWaiters = [];
+    for (const fn of waiters) fn();
+  }
+
+  protected cancelQueuedStart(id: string): boolean {
+    const timer = this.queuedStarts.get(id);
+    if (!timer) return false;
+    clearTimeout(timer);
+    this.queuedStarts.delete(id);
+    return true;
+  }
+}

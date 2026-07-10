@@ -1,0 +1,33 @@
+// Server-internal types live here; the cross-boundary DTOs are re-exported from
+// the shared module so existing `import { ProcessView } from "./types"` call
+// sites across the server keep working.
+export type { Status, ProcessView, ProjectView, LogLine } from "../../shared/dto";
+
+export interface ProcessDef {
+  id: string; // global, unique: `${projectId}.${localId}`
+  localId: string; // as written in the .devwebui file
+  name: string;
+  command: string;
+  cwd: string; // resolved absolute path used to spawn
+  cwdRaw?: string; // as written in the .devwebui file (for round-trip editing)
+  color?: string;
+  env?: Record<string, string>;
+  autostart?: boolean;
+  starred?: boolean;
+  port?: number;
+  url?: string; // where the title links to: absolute URL, or a path appended to http://<host>:<port> (host = Settings.linkHost, else the GUI's own hostname)
+  runtime?: "node" | "bun"; // launch this command under Node or Bun (rewrites the leading runtime)
+  /** Dependency-ordered startup: a literal port, or a sibling process's `localId`, to wait on before spawning. */
+  waitForPort?: number | string;
+  projectId: string;
+  projectName: string;
+}
+
+/** A project ready to register in the Manager (resolved from a .devwebui file). */
+export interface LoadedProject {
+  id: string;
+  name: string;
+  path: string;
+  dir: string;
+  processes: ProcessDef[];
+}

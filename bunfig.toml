@@ -1,0 +1,4 @@
+# Test preload isolates the suite's data dir (DEVWEBUI_HOME → a temp dir) so tests never
+# pollute the real ~/.devwebui error log / runtime pointer. See tests/setup.ts.
+[test]
+preload = ["./tests/setup.ts"]
