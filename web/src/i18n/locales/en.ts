@@ -113,6 +113,10 @@ export default {
     unknownCode: "unknown",
     noOutput: "(no stderr output was captured)",
   },
+  groupAction: {
+    alsoStarted: "Also started: {names}",
+    alsoStopped: "Also stopped: {names}",
+  },
   notifications: {
     panelTitle: "Notifications",
     errorsForProcess: "· errors for {name}",
@@ -315,7 +319,7 @@ export default {
     monitorHelp:
       'Samples each running server\'s CPU and memory with one system query every 10 seconds. Turn <strong class="text-foreground">off</strong> to stop those queries entirely (lighter on the machine) — the CPU and Memory columns are hidden and uptime keeps working.',
     appUpdates: "App updates",
-    autoUpdate: "Silently auto-update DevWebUI",
+    autoUpdate: "Auto-update",
     autoUpdateHelp:
       'When <strong class="text-foreground">on</strong>, DevWebUI periodically checks for a newer version and, if your local copy has <strong class="text-foreground">no uncommitted changes</strong>, pulls it, reinstalls, rebuilds, and restarts the daemon on its own — no prompt. Default <strong class="text-foreground">off</strong>, since it restarts the daemon unattended. A dirty working tree is never touched.',
     openInBrowser: "Open in browser",
@@ -323,6 +327,9 @@ export default {
     portableModeHelp:
       "Opens DevWebUI in its own chromeless window (no tabs or address bar) instead of a browser tab. The desktop launcher and tray icon follow this setting too.",
     portableOpened: "Opened in portable window - you can close this tab",
+    hideTrayIcon: "Hide tray icon",
+    hideTrayIconHelp:
+      "Hides the notification-area icon. DevWebUI keeps running in the background — launching the shortcut again reopens the UI, and you can turn the icon back on right here.",
     tabGeneral: "General",
     tabServers: "Servers",
     tabProjects: "Projects",

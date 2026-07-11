@@ -31,7 +31,7 @@ and put it in the repo root.
       "autostart": true,       // optional; start it automatically when the project loads
       "env": { "NODE_ENV": "development" }, // optional; extra env vars for this process
       "waitForPort": "web",    // optional; wait for a literal port, or a sibling id's port, before spawning
-      "links": ["web"],        // optional; sibling ids that start together with this one (symmetric, transitive)
+      "links": ["web"],        // optional; sibling ids that act as one unit with this one: start and stop together (symmetric, transitive)
       "companion": true        // optional; starts whenever any other process in the project is started individually
     }
   ]
@@ -54,7 +54,7 @@ and put it in the repo root.
 | `autostart`  | no       | `true` to launch on load. Use it for the main server(s), not every one. |
 | `env`        | no       | `{ "KEY": "value" }` map merged into the process environment. |
 | `waitForPort`| no       | Dependency-ordered startup. A number waits on that literal port; a string names a sibling process's `id` and waits on THAT process's declared `port` instead. |
-| `links`      | no       | Sibling process `id`s (same file) that start together with this one. Symmetric and transitive; starting any member (single-process start in the GUI, or MCP `start_process`) starts the whole group. Unknown ids are ignored at runtime. |
+| `links`      | no       | Sibling process `id`s (same file) that act as one unit with this one. Symmetric and transitive; starting or stopping any member (single-process actions in the GUI, or MCP `start_process` / `stop_process`) starts or stops the whole group. Unknown ids are ignored at runtime. |
 | `companion`  | no       | `true` to start this process whenever any *other* process in the project is started individually. For a shared database or proxy everything needs but nobody starts by hand. |
 
 ### Authoring guidance
@@ -106,7 +106,7 @@ Output ONLY the file content as JSON in this exact schema — no prose, no code 
       "color": "<hex, optional>",
       "autostart": <true only for the main server(s), omit otherwise>,
       "waitForPort": "<literal port number, or a sibling id to wait on that id's port, omit if no ordering needed>",
-      "links": ["<sibling id>"],     // omit unless servers must start as a group
+      "links": ["<sibling id>"],     // omit unless servers must start and stop as a group
       "companion": <true only for a shared service every other process needs, omit otherwise>
     }
   ]
@@ -147,7 +147,9 @@ agents share one state. Register it as shown in the README's
 - `list_processes` — every managed process with live status, pid, uptime, CPU and memory.
 - `start_process` / `stop_process` / `restart_process` — act on one process by id. `start_process`
   also starts any linked siblings (`links`) and any companion processes (`companion: true`) in the
-  same project; stop and restart only affect the one process.
+  same project; `stop_process` also stops linked siblings but leaves companions running; restart
+  only affects the one process. The response's `coStarted` / `coStopped` arrays list the other
+  process ids the action set in motion or brought down.
 - `start_all` / `stop_all` — every managed process at once.
 - `enable_process` / `disable_process` — turn one process on/off and start/stop it; persists across restarts.
 - `take_over_autostart` — retire a repo's external dev-server auto-start (VS Code `tasks.json` `runOn:folderOpen`, the Vite extension's `vite.autoStart`) so DevWebUI is the sole launcher. Backs up each edited file first. Pass the project folder (absolute path).

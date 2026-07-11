@@ -61,12 +61,18 @@ const post = (path: string) => req(path, { method: "POST" });
  * Start a process. Time-Travel Log Vault: the response carries `lastCrash` — the
  * PREVIOUS run's exit metadata + stderr tail — when that run ended in a crash, so
  * the caller can surface "last time this failed with …" (see useLastCrashHint).
+ * `coStarted` lists the linked/companion processes the action also set in motion.
  */
 export const start = (id: string) =>
-  reqJson<{ ok: boolean; lastCrash: LastCrash | null }>(ROUTES.processAction.build(id, "start"), {
+  reqJson<{ ok: boolean; lastCrash: LastCrash | null; coStarted?: string[] }>(
+    ROUTES.processAction.build(id, "start"),
+    { method: "POST" },
+  );
+/** Stop a process. `coStopped` lists the linked processes brought down with it. */
+export const stop = (id: string) =>
+  reqJson<{ ok: boolean; coStopped?: string[] }>(ROUTES.processAction.build(id, "stop"), {
     method: "POST",
   });
-export const stop = (id: string) => post(ROUTES.processAction.build(id, "stop"));
 export const restart = (id: string) => post(ROUTES.processAction.build(id, "restart"));
 export const enableProcess = (id: string) => post(ROUTES.processAction.build(id, "enable"));
 export const disableProcess = (id: string) => post(ROUTES.processAction.build(id, "disable"));

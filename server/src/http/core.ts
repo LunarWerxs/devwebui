@@ -240,6 +240,7 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
           ? body.autoUpdateIntervalSecs
           : undefined,
       portableMode: optBool(body.portableMode),
+      hideTrayIcon: optBool(body.hideTrayIcon),
     });
     manager.globalRuntime = saved.runtime;
     manager.freePortOnStart = saved.freePortOnStart;
@@ -249,9 +250,9 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
     // server/src/auto-update.ts). The interval setter clamps — persist the value it settled on.
     setAutoUpdateEnabled(saved.autoUpdate);
     setAutoUpdateIntervalSecs(saved.autoUpdateIntervalSecs);
-    // Keep the runtime pointer's launcher-facing flag current so the tray sees the new
-    // value on its NEXT open/double-click without waiting for a daemon restart.
-    updateInstanceInfo({ portableMode: saved.portableMode });
+    // Keep the runtime pointer's launcher-facing flags current so the tray sees the new
+    // values within its next poll/timer tick without waiting for a daemon restart.
+    updateInstanceInfo({ portableMode: saved.portableMode, hideTrayIcon: saved.hideTrayIcon });
     // Apply to anything already running — fire-and-forget so this response can't hang on
     // a stubborn kill; the GUI sees the restarts via SSE status events.
     if (body.restart) void manager.restartRunning();

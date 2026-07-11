@@ -7,6 +7,7 @@ import {
   Activity,
   AppWindow,
   Cpu,
+  EyeOff,
   ExternalLink,
   FilterX,
   FolderX,
@@ -82,6 +83,7 @@ const skipLinux = ref(false);
 const restartNow = ref(true);
 const autoUpdate = ref(false);
 const portableMode = ref(false);
+const hideTrayIcon = ref(false);
 // Pre-edit snapshot of portableMode as THIS panel loaded it. save() detects the
 // off->on transition against this, not store.portableMode: the store hydrates from
 // its own unawaited fetch and can still hold its default when the user hits Save,
@@ -135,6 +137,7 @@ watch(open, async (v) => {
     autoUpdate.value = s.autoUpdate ?? false;
     portableMode.value = s.portableMode ?? false;
     loadedPortableMode.value = portableMode.value;
+    hideTrayIcon.value = s.hideTrayIcon ?? false;
   } catch (e) {
     toast.error(e instanceof Error ? e.message : t("settings.loadFailed"));
   }
@@ -162,6 +165,7 @@ async function save() {
       restart: restartNow.value,
       autoUpdate: autoUpdate.value,
       portableMode: portableMode.value,
+      hideTrayIcon: hideTrayIcon.value,
     });
     // Reflect into the store so the CPU/Mem columns and process links update immediately.
     store.monitorResources = saved.monitorResources;
@@ -204,7 +208,7 @@ async function save() {
   >
     <!-- Theme is a light/dark toggle icon in the panel header (next to the ✕), not a settings row. -->
     <template #header>
-      <span class="text-sm font-semibold">{{ t("settings.title") }}</span>
+      <span class="text-xs font-semibold">{{ t("settings.title") }}</span>
       <button
         type="button"
         class="ml-auto grid size-7 place-items-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
@@ -296,6 +300,10 @@ async function save() {
         <SettingsRow :icon="AppWindow" :label="t('settings.portableMode')">
           <template #info><InfoHint>{{ t('settings.portableModeHelp') }}</InfoHint></template>
           <template #control><Switch id="sd-portable-mode" v-model="portableMode" /></template>
+        </SettingsRow>
+        <SettingsRow :icon="EyeOff" :label="t('settings.hideTrayIcon')">
+          <template #info><InfoHint>{{ t('settings.hideTrayIconHelp') }}</InfoHint></template>
+          <template #control><Switch id="sd-hide-tray-icon" v-model="hideTrayIcon" /></template>
         </SettingsRow>
         <div class="px-3.5 py-2.5">
           <div class="mb-1.5 flex items-center gap-1.5">

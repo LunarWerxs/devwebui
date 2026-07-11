@@ -1,10 +1,11 @@
 // ───────────────────────────────────────────────────────────────────────────────
 // Linked servers: a process may declare `links` (sibling localIds, same project)
-// and/or `companion: true`. `Manager.startWithLinks(id)` — the GUI/MCP start
-// action — starts the anchor immediately, then batch-starts the anchor's
-// transitive UNDIRECTED link closure plus every companion in the project.
-// Propagation is scoped to startWithLinks ONLY: start/restart/stop/autostart
-// never pull in or push out linked siblings. See server/src/manager/links.ts and
+// and/or `companion: true`. A linked group acts as ONE unit: `startWithLinks(id)`
+// (the GUI/MCP start action) starts the anchor immediately, then batch-starts the
+// anchor's transitive UNDIRECTED link closure plus every companion in the project;
+// `stopWithLinks(id)` (the GUI/MCP stop action) stops the closure but leaves
+// companions running. The plain start/stop/restart primitives and autostart never
+// pull in or push out linked siblings. See server/src/manager/links.ts and
 // server/src/manager/lifecycle.ts for the authoritative semantics, and
 // server/src/projects/file-store.ts for how `links` are kept consistent on disk
 // (de-duped, self-refs dropped, pruned on removal, rewritten on rename).
@@ -85,7 +86,8 @@ test("startWithLinks: starting A with links:['b'] also starts B", async () => {
       { autostart: false },
     );
 
-    manager.startWithLinks("links-test.a");
+    const res = manager.startWithLinks("links-test.a");
+    expect(res.coStarted).toEqual(["links-test.b"]);
     await waitFor(() => manager.view("links-test.a")?.status === "running");
     await waitFor(() => manager.view("links-test.b")?.status === "running");
   } finally {
@@ -221,7 +223,7 @@ test("restart(A) after stopping linked B leaves B stopped", async () => {
   }
 }, 10000);
 
-test("stop(A) leaves a running linked B running", async () => {
+test("plain stop(A) does NOT propagate — a running linked B stays running", async () => {
   const manager = newManager();
   try {
     manager.addProject(
@@ -247,6 +249,115 @@ test("stop(A) leaves a running linked B running", async () => {
   }
 }, 10000);
 
+test("stopWithLinks: stopping either side of a link brings the whole group down", async () => {
+  const manager = newManager();
+  try {
+    manager.addProject(
+      project("links-test", [
+        // Link declared only on a; stopping b must still stop a (symmetric).
+        processDef({ localId: "a", links: ["b"] }),
+        processDef({ localId: "b" }),
+      ]),
+      { autostart: false },
+    );
+
+    manager.startWithLinks("links-test.a");
+    await waitFor(() => manager.view("links-test.a")?.status === "running");
+    await waitFor(() => manager.view("links-test.b")?.status === "running");
+
+    const coStopped = await manager.stopWithLinks("links-test.b");
+    expect(coStopped).toEqual(["links-test.a"]);
+    await waitFor(() => manager.view("links-test.b")?.status === "stopped");
+    await waitFor(() => manager.view("links-test.a")?.status === "stopped");
+  } finally {
+    await manager.stopProject("links-test");
+    manager.dispose();
+  }
+}, 10000);
+
+test("ripple reporting: coStarted excludes already-running members; coStopped excludes stopped ones", async () => {
+  const manager = newManager();
+  try {
+    manager.addProject(
+      project("links-test", [
+        processDef({ localId: "a", links: ["b"] }),
+        processDef({ localId: "b" }),
+      ]),
+      { autostart: false },
+    );
+
+    // b already running -> starting a reports no ripple.
+    manager.start("links-test.b");
+    await waitFor(() => manager.view("links-test.b")?.status === "running");
+    const res = manager.startWithLinks("links-test.a");
+    expect(res.coStarted).toEqual([]);
+    await waitFor(() => manager.view("links-test.a")?.status === "running");
+
+    // Both running -> stopping a reports b as brought down with it.
+    const coStopped = await manager.stopWithLinks("links-test.a");
+    expect(coStopped).toEqual(["links-test.b"]);
+
+    // Everything stopped -> stopping again reports no ripple.
+    const again = await manager.stopWithLinks("links-test.a");
+    expect(again).toEqual([]);
+  } finally {
+    await manager.stopProject("links-test");
+    manager.dispose();
+  }
+}, 10000);
+
+test("stopWithLinks: companions keep running — they join starts only", async () => {
+  const manager = newManager();
+  try {
+    manager.addProject(
+      project("links-test", [
+        processDef({ localId: "a", links: ["b"] }),
+        processDef({ localId: "b" }),
+        processDef({ localId: "db", companion: true }),
+      ]),
+      { autostart: false },
+    );
+
+    manager.startWithLinks("links-test.a");
+    await waitFor(() => manager.view("links-test.a")?.status === "running");
+    await waitFor(() => manager.view("links-test.b")?.status === "running");
+    await waitFor(() => manager.view("links-test.db")?.status === "running");
+
+    await manager.stopWithLinks("links-test.a");
+    await waitFor(() => manager.view("links-test.a")?.status === "stopped");
+    await waitFor(() => manager.view("links-test.b")?.status === "stopped");
+
+    await sleep(150);
+    expect(manager.view("links-test.db")?.status).toBe("running");
+  } finally {
+    await manager.stopProject("links-test");
+    manager.dispose();
+  }
+}, 10000);
+
+test("stopWithLinks: unknown id resolves without throwing and stops nothing", async () => {
+  const manager = newManager();
+  try {
+    manager.addProject(
+      project("links-test", [
+        processDef({ localId: "a", links: ["b"] }),
+        processDef({ localId: "b" }),
+      ]),
+      { autostart: false },
+    );
+
+    manager.startWithLinks("links-test.a");
+    await waitFor(() => manager.view("links-test.a")?.status === "running");
+
+    await manager.stopWithLinks("links-test.nope");
+    await sleep(100);
+    expect(manager.view("links-test.a")?.status).toBe("running");
+  } finally {
+    await manager.stopProject("links-test");
+    manager.dispose();
+  }
+}, 10000);
+
 test("startWithLinks: an unknown link target is ignored — the anchor still starts, no throw", async () => {
   const manager = newManager();
   try {
@@ -262,7 +373,7 @@ test("startWithLinks: an unknown link target is ignored — the anchor still sta
   }
 }, 10000);
 
-test("startWithLinks: an unknown id returns null and starts nothing", async () => {
+test("startWithLinks: an unknown id reports nothing and starts nothing", async () => {
   const manager = newManager();
   try {
     manager.addProject(project("links-test", [processDef({ localId: "a" })]), {
@@ -270,7 +381,8 @@ test("startWithLinks: an unknown id returns null and starts nothing", async () =
     });
 
     const result = manager.startWithLinks("links-test.unknown");
-    expect(result).toBeNull();
+    expect(result.lastCrash).toBeNull();
+    expect(result.coStarted).toEqual([]);
 
     await sleep(150);
     expect(manager.view("links-test.a")?.status).toBe("stopped");

@@ -24,8 +24,11 @@
 import { onBeforeUnmount } from "vue";
 
 export interface GripDragHandlers {
-  /** Capture the drag's starting state. Return false to reject the drag (missing refs etc.). */
-  onStart?: (e: PointerEvent) => void | boolean;
+  /** Capture the drag's starting state. Return false to reject the drag (missing refs etc.);
+   *  any other value — or no return at all — lets the drag proceed. Typed `unknown` rather
+   *  than `void | boolean`: only an explicit `false` is ever inspected, and the union form
+   *  trips biome's noConfusingVoidType in the consuming apps. */
+  onStart?: (e: PointerEvent) => unknown;
   /** Live tracking. Only called while the primary button is verifiably still held. */
   onMove: (e: PointerEvent) => void;
   /** Commit/cleanup. Called exactly once per started drag, however it ended. */

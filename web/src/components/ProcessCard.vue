@@ -24,6 +24,7 @@ import { storeToRefs } from "pinia";
 import { disableProcess, enableProcess, restart, start, stop } from "@/api";
 import { useAppStore } from "@/store";
 import { useFreePortAction } from "@/lib/freePort";
+import { useGroupActionToast } from "@/lib/groupToast";
 import { useLastCrashHint } from "@/lib/lastCrash";
 import { useRunAction } from "@/lib/useAction";
 import { useTooltipConfig } from "@/lib/tooltip-config";
@@ -75,12 +76,23 @@ const linkedNames = computed(() => {
 });
 
 const runAction = useRunAction("processCard.actionFailed");
+const showGroupToast = useGroupActionToast();
 
-/** Start, then surface the Time-Travel Log Vault hint if the LAST run crashed. */
+/** Start, then surface the Time-Travel Log Vault hint if the LAST run crashed,
+ *  and the "also started …" ripple when a linked group / companion came along. */
 function onStart() {
   return runAction(async () => {
     const res = await start(props.process.id);
     if (res.lastCrash) showLastCrashHint(props.process.name, res.lastCrash);
+    showGroupToast("started", res.coStarted);
+  });
+}
+
+/** Stop, surfacing the "also stopped …" ripple when the linked group came down too. */
+function onStop() {
+  return runAction(async () => {
+    const res = await stop(props.process.id);
+    showGroupToast("stopped", res.coStopped);
   });
 }
 </script>
@@ -222,7 +234,7 @@ function onStart() {
         <IconButton v-if="!isLive" :tooltip="t('processCard.tooltipStart')" variant="outline" @click="onStart">
           <Play class="size-4 text-success" />
         </IconButton>
-        <IconButton v-else :tooltip="t('processCard.tooltipStop')" variant="outline" @click="runAction(() => stop(process.id))">
+        <IconButton v-else :tooltip="t('processCard.tooltipStop')" variant="outline" @click="onStop">
           <Square class="size-4 text-destructive" />
         </IconButton>
         <IconButton :tooltip="t('processCard.tooltipRestart')" variant="outline" @click="runAction(() => restart(process.id))">

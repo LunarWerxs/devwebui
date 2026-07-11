@@ -163,6 +163,12 @@ export interface Settings {
    * Default OFF. See server/src/portable-window.mjs (shared kit) + POST /api/portable-window.
    */
   portableMode: boolean;
+  /**
+   * Hide the tray notification-area icon. Default OFF. The daemon and tray keep running
+   * in the background either way — re-launching the shortcut reopens the UI, and the icon
+   * can be turned back on right here in Settings. See misc/DevWebUI-Tray.ps1.
+   */
+  hideTrayIcon: boolean;
 }
 
 // ---- scaffold detection ---------------------------------------------------

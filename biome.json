@@ -18,7 +18,8 @@
       "!web/src/lib/relativeTime.ts",
       "!web/src/lib/useSelfUpdate.ts",
       "!server/src/*.mjs",
-      "!server/src/*.d.mts"
+      "!server/src/*.d.mts",
+      "!server/tests/server-lib"
     ]
   },
   "formatter": {

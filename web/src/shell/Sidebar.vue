@@ -133,7 +133,7 @@ if (import.meta.env.DEV) {
         >
           <slot name="header">
             <slot name="title-icon" />
-            <DialogTitle class="text-sm font-semibold">{{ title }}</DialogTitle>
+            <DialogTitle class="text-xs font-semibold">{{ title }}</DialogTitle>
           </slot>
           <!-- keep a title for a11y even when a custom #header is provided -->
           <DialogTitle v-if="$slots.header" class="sr-only">{{ title }}</DialogTitle>

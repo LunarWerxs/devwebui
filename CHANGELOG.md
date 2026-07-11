@@ -20,12 +20,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - **Linked servers.** Two new optional per-process fields in the `.devwebui` schema. `links` names
-  sibling process ids that start together: the relationship is symmetric and transitive, so
-  starting any member of a linked group (GUI single-process start, or MCP `start_process`) starts
-  the whole group. `companion: true` marks a process (a shared database or proxy, say) that starts
-  whenever any other process in the project is started individually. Neither affects autostart,
-  "start project"/"start all", restart, or stop. Both live in the process edit dialog (a linked-
-  servers picker and a Companion toggle), and persist in the `.devwebui` file.
+  sibling process ids that act as one unit: the relationship is symmetric and transitive, so
+  starting or stopping any member of a linked group (GUI single-process actions, or MCP
+  `start_process` / `stop_process`) starts or stops the whole group. `companion: true` marks a
+  process (a shared database or proxy, say) that starts whenever any other process in the project
+  is started individually; companions are never stopped by group propagation. Neither affects
+  autostart, "start project"/"start all", or restart. Both live in the process edit dialog (a
+  linked-servers picker and a Companion toggle), and persist in the `.devwebui` file. When an
+  action ripples to other servers, the GUI shows an "Also started/stopped: …" toast, and the
+  HTTP/MCP response lists the affected ids (`coStarted` / `coStopped`).
 - **Portable window mode.** A new Settings → Open in browser → "Portable window" toggle opens
   DevWebUI in its own chromeless Chromium app window (`msedge`/`chrome --app=`, no tabs or
   address bar) instead of a normal browser tab. Turning it on immediately opens the app window

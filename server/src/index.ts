@@ -21,12 +21,14 @@ import {
   startAutoUpdate,
   stopAutoUpdate,
 } from "./auto-update";
-import { initFileLogging } from "./log-file";
+import { initFileLogging } from "./log-file.mjs";
+import { dataDir } from "./data-dir";
 
 // Persist console output to <CONFIG_DIR>/logs/daemon.log BEFORE anything else can throw, so
 // the crash reason logged just below actually survives the process (the tray runs us with a
-// hidden console, so without this the output would vanish). Best-effort; never throws.
-initFileLogging();
+// hidden console, so without this the output would vanish). Best-effort; never throws. The
+// config dir comes from dataDir() (the shared kit lib takes it as a required argument).
+initFileLogging(dataDir());
 
 // Last-resort crash handlers: an unhandled throw/rejection anywhere in the daemon logs what
 // happened and exits non-zero instead of dying silently (or, for a rejection, limping on in an
@@ -110,9 +112,13 @@ for (const file of readRegistry()) {
 
 // Advertise where we actually landed, then keep it tidy on a clean exit. (A hard
 // kill skips this; readers re-validate the pointer with /api/health, so a stale
-// file is harmless.) `portableMode` rides along as a launcher-facing extra so the
-// tray can decide app-window vs. tab without a round-trip to the daemon.
-writeInstanceInfo(PORT, { portableMode: startupSettings.portableMode === true });
+// file is harmless.) `portableMode`/`hideTrayIcon` ride along as launcher-facing
+// extras so the tray can decide app-window vs. tab and icon visibility without a
+// round-trip to the daemon.
+writeInstanceInfo(PORT, {
+  portableMode: startupSettings.portableMode === true,
+  hideTrayIcon: startupSettings.hideTrayIcon === true,
+});
 // Clear any stale "full shutdown" sentinel left by a previous (possibly hard-killed) run so a
 // leftover can't make a freshly-launched tray quit the instant it starts. Only a genuine
 // in-session UI shutdown (the /api/shutdown route) writes a fresh one; the tray watches for it.

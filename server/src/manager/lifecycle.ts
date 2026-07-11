@@ -91,10 +91,12 @@ export class ManagerWithLifecycle extends ManagerWithMonitoring {
    * last-crash return for the caller — while the rest go through the ordinary
    * staggered, dependency-ordered batch queue. Already-running members are
    * no-ops, so this is safely idempotent ("bring this group up").
+   * `coStarted` lists the OTHER processes this action actually set in motion
+   * (already-running/queued members excluded) so the GUI can say "also started …".
    */
-  startWithLinks(id: string): LastCrash | null {
+  startWithLinks(id: string): { lastCrash: LastCrash | null; coStarted: string[] } {
     const e = this.entries.get(id);
-    if (!e) return null;
+    if (!e) return { lastCrash: null, coStarted: [] };
     let extras = coStartIds(e.def, [...this.defsById().values()]);
     const lastCrash = this.start(id);
     // startMany() is all-or-nothing on a waitForPort cycle — correct for an
@@ -115,8 +117,14 @@ export class ManagerWithLifecycle extends ManagerWithMonitoring {
         extras = extras.filter((x) => !cycle.has(x));
       }
     }
+    // Same guard queueStart applies: members already running, mid-start, or
+    // queued by an earlier batch aren't started BY THIS ACTION — don't report them.
+    const coStarted = extras.filter((x) => {
+      const xe = this.entries.get(x);
+      return !!xe && !xe.child && !xe.pendingStart && !this.queuedStarts.has(x);
+    });
     if (extras.length) this.startMany(extras);
-    return lastCrash;
+    return { lastCrash, coStarted };
   }
 
   /**
@@ -124,12 +132,19 @@ export class ManagerWithLifecycle extends ManagerWithMonitoring {
    * plus its linked group — a linked group acts as one unit, so stopping any
    * member brings the whole group down. Companions are NOT included: they join
    * starts only (a shared database shouldn't die because one consumer stopped).
+   * Resolves to the OTHER group members this action actually brought down
+   * (already-stopped members excluded) so the GUI can say "also stopped …".
    */
-  stopWithLinks(id: string): Promise<void> {
+  async stopWithLinks(id: string): Promise<string[]> {
     const e = this.entries.get(id);
-    if (!e) return Promise.resolve();
+    if (!e) return [];
     const group = linkedGroupIds(e.def, [...this.defsById().values()]);
-    return Promise.all([id, ...group].map((pid) => this.stop(pid))).then(() => undefined);
+    const coStopped = group.filter((gid) => {
+      const ge = this.entries.get(gid);
+      return !!ge && (!!ge.child || ge.pendingStart || this.queuedStarts.has(gid));
+    });
+    await Promise.all([id, ...group].map((pid) => this.stop(pid)));
+    return coStopped;
   }
 
   /**

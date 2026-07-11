@@ -6,6 +6,12 @@ import { useTooltipConfig } from "@/lib/tooltip-config"
 
 const props = withDefaults(defineProps<TooltipProviderProps>(), {
   delayDuration: 0,
+  // Vue's TS-macro compiler infers a bare runtime `Boolean` type for an optional `boolean`
+  // prop, and Vue defaults an ABSENT Boolean prop to `false` (not `undefined`) — so without
+  // this, `props.disabled` is `false` even when no caller ever passes it, and the `?? !enabled.value`
+  // fallback below never triggers (the kit-wide tooltip kill-switch silently does nothing).
+  // An explicit `undefined` default overrides that implicit coercion.
+  disabled: undefined,
 })
 
 // Global kill-switch: unless a caller pins `disabled` explicitly, follow the shared

@@ -130,6 +130,7 @@ export function readSettings(): Settings {
         ? clampAutoUpdateInterval(s.autoUpdateIntervalSecs)
         : AUTO_UPDATE_INTERVAL_DEFAULT_S,
       portableMode: bool(s.portableMode, false),
+      hideTrayIcon: bool(s.hideTrayIcon, false),
     };
   } catch {
     return {
@@ -145,6 +146,7 @@ export function readSettings(): Settings {
       autoUpdate: false,
       autoUpdateIntervalSecs: AUTO_UPDATE_INTERVAL_DEFAULT_S,
       portableMode: false,
+      hideTrayIcon: false,
     };
   }
 }
@@ -176,6 +178,7 @@ export function writeSettings(patch: Partial<Settings>): Settings {
         ? clampAutoUpdateInterval(patch.autoUpdateIntervalSecs)
         : cur.autoUpdateIntervalSecs,
     portableMode: bool(patch.portableMode, cur.portableMode),
+    hideTrayIcon: bool(patch.hideTrayIcon, cur.hideTrayIcon),
   };
   mkdirSync(dataDir(), { recursive: true });
   const file = settingsFile();

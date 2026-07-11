@@ -138,13 +138,20 @@ export function registerProcessRoutes(app: Hono, manager: Manager) {
     // metadata (if it crashed) so the GUI can show "last time this failed with …".
     // A linked group acts as one unit: startWithLinks also brings up the linked
     // group + project companions; stopWithLinks brings the linked group down.
+    // `coStarted`/`coStopped` list the OTHER processes the action set in motion,
+    // so the GUI (and MCP callers) can surface the ripple.
     let lastCrash = null;
-    if (action === "start") lastCrash = manager.startWithLinks(id);
-    else if (action === "stop") await manager.stopWithLinks(id);
+    let coStarted: string[] | undefined;
+    let coStopped: string[] | undefined;
+    if (action === "start") {
+      const res = manager.startWithLinks(id);
+      lastCrash = res.lastCrash;
+      coStarted = res.coStarted;
+    } else if (action === "stop") coStopped = await manager.stopWithLinks(id);
     else if (action === "restart") await manager.restart(id);
     else if (action === "enable") manager.setProcessEnabled(id, true);
     else if (action === "disable") manager.setProcessEnabled(id, false);
     else return fail(c, "unknown action");
-    return c.json({ ok: true, process: manager.view(id), lastCrash });
+    return c.json({ ok: true, process: manager.view(id), lastCrash, coStarted, coStopped });
   });
 }

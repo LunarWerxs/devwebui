@@ -46,6 +46,7 @@ import IconButton from "./IconButton.vue";
 import { disableProcess, enableProcess, restart, start, stop } from "@/api";
 import { useAppStore } from "@/store";
 import { useFreePortAction } from "@/lib/freePort";
+import { useGroupActionToast } from "@/lib/groupToast";
 import { useLastCrashHint } from "@/lib/lastCrash";
 import { useRunAction } from "@/lib/useAction";
 import { useTooltipConfig } from "@/lib/tooltip-config";
@@ -110,12 +111,23 @@ const linkedNamesById = computed<Record<string, string>>(() => {
 });
 
 const runAction = useRunAction("processTable.actionFailed");
+const showGroupToast = useGroupActionToast();
 
-/** Start, then surface the Time-Travel Log Vault hint if the LAST run crashed. */
+/** Start, then surface the Time-Travel Log Vault hint if the LAST run crashed,
+ *  and the "also started …" ripple when a linked group / companion came along. */
 function onStart(p: ProcessView) {
   return runAction(async () => {
     const res = await start(p.id);
     if (res.lastCrash) showLastCrashHint(p.name, res.lastCrash);
+    showGroupToast("started", res.coStarted);
+  });
+}
+
+/** Stop, surfacing the "also stopped …" ripple when the linked group came down too. */
+function onStop(p: ProcessView) {
+  return runAction(async () => {
+    const res = await stop(p.id);
+    showGroupToast("stopped", res.coStopped);
   });
 }
 </script>
@@ -314,7 +326,7 @@ function onStart(p: ProcessView) {
               <IconButton v-if="!isLive(p)" :tooltip="t('processTable.actionStart')" @click="onStart(p)">
                 <Play class="size-4 text-success" />
               </IconButton>
-              <IconButton v-else :tooltip="t('processTable.actionStop')" @click="runAction(() => stop(p.id))">
+              <IconButton v-else :tooltip="t('processTable.actionStop')" @click="onStop(p)">
                 <Square class="size-4 text-destructive" />
               </IconButton>
               <DropdownMenu>
