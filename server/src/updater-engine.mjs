@@ -170,14 +170,27 @@ export function createUpdater({ appRoot, serviceName, appLabel, updateRepoEnvVar
     }
 
     status.remoteCommit = remoteCommit;
-    status.updateAvailable = !!(remoteCommit && remoteCommit !== currentCommit);
+    // A differing remote SHA is NOT enough: on a dev checkout the local branch is routinely
+    // AHEAD of the update remote (committed-but-unpushed work). ls-remote gives us the SHA
+    // without fetching, and when we're ahead that commit already exists locally, so
+    // merge-base --is-ancestor can prove it's behind us (exit 0). A genuinely new remote
+    // commit is an unknown object locally (exit 128) or a non-ancestor (exit 1), both of
+    // which correctly read as "update available". Without this, an enabled auto-update
+    // loop on an ahead checkout would ff-pull a no-op and reinstall + rebuild every cycle.
+    let remoteIsAncestor = false;
+    if (remoteCommit && remoteCommit !== currentCommit) {
+      remoteIsAncestor = (await git(["merge-base", "--is-ancestor", remoteCommit, "HEAD"])).ok;
+    }
+    status.updateAvailable = !!(remoteCommit && remoteCommit !== currentCommit && !remoteIsAncestor);
     status.canApply = status.updateAvailable && !dirty && !!(compareBranch || status.branch);
     status.reason = status.updateAvailable
       ? dirty
         ? "local changes must be committed or stashed before updating"
         : null
       : remoteCommit
-        ? "up to date"
+        ? remoteIsAncestor
+          ? "local checkout is ahead of the update remote"
+          : "up to date"
         : "could not read remote commit";
     return status;
   }
