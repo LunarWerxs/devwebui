@@ -36,6 +36,10 @@ export interface ProcessView {
   runtime?: "node" | "bun";
   /** Dependency-ordered startup: a literal port, or a sibling process id, to wait on before spawning. */
   waitForPort?: number | string;
+  /** Linked servers (sibling local ids): starting any member of a linked group starts the whole group. */
+  links?: string[];
+  /** Companion: starts whenever any other process in the project is started individually. */
+  companion?: boolean;
   projectId: string;
   projectName: string;
   status: Status;
@@ -92,6 +96,8 @@ export interface ProcessInput {
   starred?: boolean;
   runtime?: "node" | "bun";
   waitForPort?: number | string;
+  links?: string[];
+  companion?: boolean;
 }
 
 // ---- machine scan ---------------------------------------------------------
@@ -151,6 +157,12 @@ export interface Settings {
   autoUpdate: boolean;
   /** Auto-update check cadence in seconds. Clamped to [900, 604800]; default 21600 (6 h). */
   autoUpdateIntervalSecs: number;
+  /**
+   * Open the app UI in a chromeless Chromium app window (`--app=URL`) instead of a
+   * normal browser tab — both from the in-app toggle and the tray/desktop launcher.
+   * Default OFF. See server/src/portable-window.mjs (shared kit) + POST /api/portable-window.
+   */
+  portableMode: boolean;
 }
 
 // ---- scaffold detection ---------------------------------------------------

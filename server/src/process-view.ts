@@ -35,6 +35,8 @@ export function toProcessView(def: ProcessDef, e: ProcessRuntime, enabled: boole
     url: def.url,
     runtime: def.runtime,
     waitForPort: def.waitForPort,
+    links: def.links,
+    companion: def.companion,
     projectId: def.projectId,
     projectName: def.projectName,
     status: e.status,

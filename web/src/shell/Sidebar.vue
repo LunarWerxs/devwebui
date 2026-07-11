@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { CSSProperties, HTMLAttributes } from "vue";
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import {
   DialogClose,
   DialogContent,
@@ -12,7 +12,7 @@ import {
 } from "reka-ui";
 import { X } from "@lucide/vue";
 import { cn } from "@/lib/utils";
-import { type PushPanelSide, DEFAULT_PANEL_WIDTH } from "./usePushPanel";
+import { type PushPanelSide, DEFAULT_PANEL_WIDTH, maxOpenPushPanelWidth } from "./usePushPanel";
 
 /**
  * Sidebar, the ONE slide-in panel every LunarWerx app uses (settings, drawers,
@@ -74,6 +74,34 @@ const contentStyle = computed<CSSProperties>(() => {
 function guardOutside(e: Event) {
   if (!overlayed.value) e.preventDefault();
 }
+
+// DEV guard: a right-docked push panel must be matched by a usePushPanel configured
+// with (at least) THIS panel's width, or the content shift and modal centering
+// disagree with the rendered panel (bug class caught in ccmanagerui 2026-07-10:
+// width-px=480 panel over a bare usePushPanel() = 420). Compared against the
+// CONFIGURED width, not the --content-inset-right var: with shellMaxWidth the
+// correct shift is the panel↔shell overlap, legitimately smaller than the panel.
+if (import.meta.env.DEV) {
+  watch(
+    () => props.open,
+    (isOpen) => {
+      if (!isOpen || props.side !== "right" || props.mode !== "push") return;
+      // setTimeout, not rAF: the shell's open-state flush is what registers the
+      // width, and rAF never fires in hidden/background tabs.
+      window.setTimeout(() => {
+        if (!props.open) return;
+        if (maxOpenPushPanelWidth() < props.widthPx) {
+          console.warn(
+            `[Sidebar] push panel is ${props.widthPx}px wide but no open usePushPanel is ` +
+              `configured for at least that width. Pass the same width to the shell's ` +
+              `usePushPanel({ widthPx: ${props.widthPx} }) so the content shift, panel width ` +
+              `and modal centering agree.`,
+          );
+        }
+      }, 200);
+    },
+  );
+}
 </script>
 
 <template>
@@ -97,7 +125,12 @@ function guardOutside(e: Event) {
         @pointer-down-outside="guardOutside"
         @interact-outside="guardOutside"
       >
-        <header class="flex shrink-0 items-center gap-2 px-4 py-2.5 pr-12">
+        <!-- glassy header: translucent + blurred, with the default body pulled up
+             underneath it (-mt/pt pair) so scrolled content shimmers through. Custom
+             bodyClass consumers keep the plain in-flow header (no overlap surprises). -->
+        <header
+          class="relative z-10 flex h-12 shrink-0 items-center gap-2 bg-background/70 px-4 pr-12 backdrop-blur-md"
+        >
           <slot name="header">
             <slot name="title-icon" />
             <DialogTitle class="text-sm font-semibold">{{ title }}</DialogTitle>
@@ -107,17 +140,18 @@ function guardOutside(e: Event) {
           <DialogDescription class="sr-only">{{ description || title }}</DialogDescription>
         </header>
 
-        <div :class="bodyClass || 'scroll-slim min-h-0 flex-1 overflow-y-auto p-3.5'">
+        <div :class="bodyClass || 'scroll-slim -mt-12 min-h-0 flex-1 overflow-y-auto p-3.5 pt-15'">
           <slot />
         </div>
 
-        <footer v-if="$slots.footer" class="shrink-0 border-t border-border/60 px-4 py-2.5">
+        <footer v-if="$slots.footer" class="shrink-0 px-4 py-2.5">
           <slot name="footer" />
         </footer>
 
         <DialogClose
-          class="ring-offset-background focus:ring-ring absolute top-2.5 right-3 rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:outline-hidden"
+          class="ring-offset-background focus:ring-ring absolute top-3 right-3 z-20 rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:outline-hidden"
           aria-label="Close"
+          title="Close"
         >
           <X class="size-4" />
         </DialogClose>

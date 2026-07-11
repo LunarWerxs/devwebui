@@ -229,7 +229,7 @@ function notifTitle(n: AppNotification) {
 </script>
 
 <template>
-  <RightDrawer v-model:open="open" :title="t('notifications.panelTitle')" content-class="w-full sm:max-w-2xl">
+  <RightDrawer v-model:open="open" :title="t('notifications.panelTitle')">
     <template #header>
       <div class="flex w-full items-center gap-2">
         <span class="font-semibold">{{ t("notifications.panelTitle") }}</span>

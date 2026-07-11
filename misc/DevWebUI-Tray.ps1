@@ -66,6 +66,15 @@ if ($SelfTest) {
 $port = $Port
 $env:DEVWEBUI_PORT = "$Port"   # the daemon (bun server) reads this as its PREFERRED port
 $infoFile = Join-Path $env:USERPROFILE ".devwebui\runtime.json"
+# Where the daemon self-logs (see server/src/log-file.ts) — surfaced in the crash balloons so
+# the user knows where to look when the watchdog reports a restart.
+$logPath = Join-Path $env:USERPROFILE ".devwebui\logs\daemon.log"
+# "Full shutdown" sentinel the daemon drops when a user picks Shut Down in the web UI (or runs
+# `devwebui stop`): a request to terminate the WHOLE app, this tray included. The watch timer
+# below polls for it and runs Quit. Clear any stale one now so a leftover from a hard-killed
+# previous run can't make us quit the instant we launch.
+$script:shutdownRequestFile = Join-Path (Split-Path -Parent $infoFile) "shutdown.request"
+Remove-Item $script:shutdownRequestFile -Force -ErrorAction SilentlyContinue
 # Current live URL — updated whenever we (re)start the daemon. Script-scoped so the
 # tray menu handlers always open wherever the daemon actually is now.
 $script:url = "http://localhost:$port"
@@ -73,9 +82,31 @@ $script:shutdownToken = [System.Guid]::NewGuid().ToString("N")
 # Tracks whether this tray launched the daemon itself; attached daemons are left alone
 # when the tray exits.
 $script:startedByUs = $false
+# Guards Invoke-QuitApp against double entry (the Quit menu item and the watch timer can
+# both fire the full teardown).
+$script:quitting = $false
 # Shared with the worker runspace (same process heap): the worker records the PIDs it
 # spawns so Quit can reap them, and Quit sets `cancel` to stop the worker early.
 $script:shared = [hashtable]::Synchronized(@{ buildPid = 0; serverPid = 0; cancel = $false })
+# --- Auto-restart watchdog state --------------------------------------------------
+# Nothing else brings a crashed daemon back on its own (see server/src/log-file.ts's crash
+# handlers in server/src/index.ts, added alongside this watchdog). This host is the natural
+# supervisor: a timer probes /api/health and relaunches a daemon that died unexpectedly. Guards
+# keep it from fighting deliberate stops or a daemon this tray doesn't own:
+#   · $intentionalStop  — set during Quit so we never resurrect a daemon we're closing.
+#   · $script:busy       — a Rebuild/Restart worker owns the daemon; the watchdog stands down.
+#   · $script:startedByUs — only revive a daemon THIS tray launched; an attached daemon started
+#                            by another session/tray is left alone, same as Stop-DevWebUI's rule.
+#   · reviveGraceUntil   — after firing a relaunch, wait for it to bind before trying again (a
+#                          fresh daemon takes a few seconds), so we don't spawn a pile-up.
+#   · crash-loop guard   — >= MAX restarts within WINDOW seconds ⇒ pause auto-restart and tell
+#                          the user (a persistently-broken build must not spin forever).
+$script:intentionalStop = $false
+$script:autoRestartPaused = $false
+$script:reviveGraceUntil = [DateTime]::MinValue
+$script:restartTimes = New-Object System.Collections.Generic.List[DateTime]
+$CrashLoopMax = 4          # restarts…
+$CrashLoopWindowSec = 120  # …within this many seconds ⇒ pause
 
 # --- Daemon control ---------------------------------------------------------------
 # Defined once as a scriptblock so the exact same functions run on the UI thread
@@ -179,6 +210,57 @@ $DevControl = {
   }
 }
 . $DevControl   # make the functions available on the UI thread
+
+# --- Portable mode: open the app UI in a chromeless Chromium app window instead of a
+# normal browser tab, when the daemon's runtime.json says the setting is on. Mirrors the
+# shared kit's server/src/portable-window.mjs resolve-and-fallback chain in PowerShell,
+# for cold starts (before the daemon — and therefore that lib — is running).
+function Resolve-ChromiumBrowser {
+  $candidates = @()
+  if ($env:ProgramFiles) { $candidates += (Join-Path ${env:ProgramFiles} "Microsoft\Edge\Application\msedge.exe") }
+  if (${env:ProgramFiles(x86)}) { $candidates += (Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe") }
+  if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe") }
+  if (${env:ProgramFiles(x86)}) { $candidates += (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe") }
+  if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe") }
+  foreach ($c in $candidates) { if (Test-Path $c) { return $c } }
+  return $null
+}
+
+# Open the app UI at $url: a portable app window when the setting is on and a Chromium
+# browser is available, else a normal browser tab. Re-reads runtime.json fresh each call
+# so a mid-session toggle (Settings → Portable window) takes effect on the NEXT open.
+function Open-AppUi([string]$url) {
+  $portable = $false
+  try {
+    if (Test-Path $infoFile) {
+      $info = Get-Content $infoFile -Raw | ConvertFrom-Json
+      $portable = [bool]$info.portableMode
+    }
+  } catch { $portable = $false }
+  if ($portable) {
+    $browser = Resolve-ChromiumBrowser
+    if ($browser) {
+      # Dedicated profile so Chromium remembers the app window's size/position across
+      # launches instead of sharing (and fighting over) the user's main browser profile.
+      # Family convention: <configDir>/portable-profile, a sibling of runtime.json — same
+      # path the daemon's POST /api/portable-window derives, so both open paths share one
+      # profile. If it can't be created, spawn without the profile args (window still
+      # opens; geometry just isn't remembered) rather than falling back to a plain tab.
+      $profileDir = Join-Path (Split-Path -Parent $infoFile) "portable-profile"
+      $profileReady = $true
+      try {
+        if (-not (Test-Path $profileDir)) { New-Item -ItemType Directory -Force -Path $profileDir | Out-Null }
+      } catch { $profileReady = $false }
+      if ($profileReady) {
+        Start-Process $browser -ArgumentList @("--user-data-dir=`"$profileDir`"", "--no-first-run", "--no-default-browser-check", "--app=$url")
+      } else {
+        Start-Process $browser -ArgumentList "--app=$url"
+      }
+      return
+    }
+  }
+  Start-Process $url
+}
 
 function Test-DevWebUIIconHasSmallFrame($icoPath) {
   try {
@@ -328,7 +410,7 @@ $pollTimer.Add_Tick({
   } elseif ($out -and $out.Ready) {
     if ($out.Url) { $script:url = $out.Url }
     $script:startedByUs = $true
-    if ($script:jobKind -eq 'rebuild') { Start-Process $script:url }
+    if ($script:jobKind -eq 'rebuild') { Open-AppUi $script:url }
   } else {
     $tray.ShowBalloonTip(3500, "DevWebUI", "Restarted, but DevWebUI isn't answering yet.", [System.Windows.Forms.ToolTipIcon]::Warning)
   }
@@ -345,6 +427,10 @@ function Start-Job-Async([bool]$doRebuild) {
   if ($doRebuild -and -not $script:isDevTree) { return }
   $script:busy = $true
   $script:jobKind = if ($doRebuild) { 'rebuild' } else { 'restart' }
+  # An explicit Restart/Rebuild is the user re-arming things: clear any crash-loop pause and
+  # the restart history so the watchdog resumes cleanly once the worker hands the daemon back.
+  $script:autoRestartPaused = $false
+  $script:restartTimes.Clear()
   $rebuildItem.Enabled = $false
   $restartItem.Enabled = $false
 
@@ -374,10 +460,23 @@ function Start-Job-Async([bool]$doRebuild) {
   }
 }
 
-$openItem.Add_Click({ Start-Process $script:url })
+$openItem.Add_Click({ Open-AppUi $script:url })
 $rebuildItem.Add_Click({ Start-Job-Async $true })
 $restartItem.Add_Click({ Start-Job-Async $false })
-$quitItem.Add_Click({
+# The full teardown: stop the worker, gracefully shut down our daemon, reap anything it
+# spawned, sweep the port, remove the notification-area icon, and exit the message loop.
+# Called by BOTH the Quit menu item AND the watch timer that fires when a user picks
+# "Shut Down" in the web UI (which drops the shutdown.request sentinel) — so both paths
+# terminate the WHOLE app, not just the daemon.
+function Invoke-QuitApp {
+  if ($script:quitting) { return }   # re-entrancy guard (menu + watch timer could both fire)
+  $script:quitting = $true
+  # Tell the watchdog we're closing on purpose BEFORE we touch the daemon, so it doesn't
+  # relaunch what we're about to stop.
+  $script:intentionalStop = $true
+  if ($healthTimer) { try { $healthTimer.Stop() } catch {} }
+  Remove-Item $script:shutdownRequestFile -Force -ErrorAction SilentlyContinue
+  if ($watchTimer) { try { $watchTimer.Stop() } catch {} }
   $script:shared.cancel = $true
   $pollTimer.Stop()
   # Best-effort graceful shutdown of our own daemon, bounded (3s) so Quit can't hang.
@@ -402,7 +501,8 @@ $quitItem.Add_Click({
   $tray.Visible = $false
   $tray.Dispose()
   [System.Windows.Forms.Application]::Exit()
-})
+}
+$quitItem.Add_Click({ Invoke-QuitApp })
 $menu.Items.Add($openItem) | Out-Null
 # Only shown in a dev tree (see $script:isDevTree above) — a distributed build never
 # gets this menu item at all, not merely a disabled one.
@@ -411,10 +511,64 @@ $menu.Items.Add($restartItem) | Out-Null
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $menu.Items.Add($quitItem) | Out-Null
 $tray.ContextMenuStrip = $menu
-$tray.Add_MouseDoubleClick({ Start-Process $script:url })
+$tray.Add_MouseDoubleClick({ Open-AppUi $script:url })
+
+# Watch for a "Shut Down" issued from the web UI (or `devwebui stop`): the daemon drops the
+# shutdown.request sentinel and we tear the whole app down — otherwise the daemon would exit
+# but this tray (and its notification-area icon) would linger. The tray's own Restart/Rebuild
+# carry the session token so they never write the sentinel, and auto-update relaunches don't
+# either; a Rebuild/Restart mid-flight ($script:busy) is skipped so its internal stop isn't
+# mistaken for a quit.
+$watchTimer = New-Object System.Windows.Forms.Timer
+$watchTimer.Interval = 500
+$watchTimer.Add_Tick({
+  if ($script:busy) { return }
+  if (Test-Path $script:shutdownRequestFile) { Invoke-QuitApp }
+})
+$watchTimer.Start()
+
+# --- Auto-restart watchdog --------------------------------------------------------
+# Ticks on the UI thread; each tick is cheap (one /api/health probe via Get-RunningUrl) and
+# NEVER blocks — a relaunch is fire-and-forget (Start-DevWebUI returns as soon as it spawns),
+# and recovery is observed on a later tick, so the tray stays responsive even while the daemon
+# reboots.
+$healthTimer = New-Object System.Windows.Forms.Timer
+$healthTimer.Interval = 5000
+$healthTimer.Add_Tick({
+  # Deliberate close, a Rebuild/Restart worker owns the daemon, or this tray never launched
+  # the daemon (an attached instance owned elsewhere) → stand down.
+  if ($script:intentionalStop -or $script:busy -or -not $script:startedByUs) { return }
+
+  $u = Get-RunningUrl $infoFile $port
+  if ($u) { $script:url = $u; return }         # healthy (track where it actually bound)
+
+  # Down. Wait out the grace window after a relaunch so a still-booting daemon isn't
+  # double-spawned, and honour a crash-loop pause.
+  if ((Get-Date) -lt $script:reviveGraceUntil) { return }
+  if ($script:autoRestartPaused) { return }
+
+  # Crash-loop guard: prune attempts outside the window, then bail if we've hit the cap.
+  $cutoff = (Get-Date).AddSeconds(-$CrashLoopWindowSec)
+  for ($i = $script:restartTimes.Count - 1; $i -ge 0; $i--) {
+    if ($script:restartTimes[$i] -lt $cutoff) { $script:restartTimes.RemoveAt($i) }
+  }
+  if ($script:restartTimes.Count -ge $CrashLoopMax) {
+    $script:autoRestartPaused = $true
+    $tray.ShowBalloonTip(6000, "DevWebUI", "DevWebUI keeps crashing - auto-restart paused. See $logPath, then use Restart to try again.", [System.Windows.Forms.ToolTipIcon]::Error)
+    return
+  }
+
+  # Relaunch (same path the tray uses everywhere else — cmd->bun so taskkill /T can reap it).
+  $script:restartTimes.Add((Get-Date))
+  $script:reviveGraceUntil = (Get-Date).AddSeconds(20)
+  $relaunched = Start-DevWebUI $root $port $script:shutdownToken
+  if ($relaunched) { $script:shared.serverPid = $relaunched.Id }
+  $tray.ShowBalloonTip(4000, "DevWebUI", "DevWebUI stopped unexpectedly - restarting. Log: $logPath", [System.Windows.Forms.ToolTipIcon]::Warning)
+})
+$healthTimer.Start()
 
 $tray.ShowBalloonTip(2500, "DevWebUI", "Running in the tray - right-click for options.", [System.Windows.Forms.ToolTipIcon]::Info)
-Start-Process $script:url
+Open-AppUi $script:url
 
 # Run the WinForms message loop (keeps the tray alive until Quit).
 [System.Windows.Forms.Application]::Run()

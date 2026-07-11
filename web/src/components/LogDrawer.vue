@@ -51,7 +51,7 @@ watch(
 </script>
 
 <template>
-  <RightDrawer v-model:open="open" :title="proc?.name ?? t('logs.title')" content-class="w-full sm:max-w-2xl">
+  <RightDrawer v-model:open="open" :title="proc?.name ?? t('logs.title')">
     <template #header>
       <span class="font-semibold">{{ proc?.name ?? t("logs.title") }}</span>
       <code v-if="proc" class="truncate text-xs text-muted-foreground">{{ proc.command }}</code>

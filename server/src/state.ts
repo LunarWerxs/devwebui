@@ -10,11 +10,10 @@
 // A process auto-starts iff  projectEnabled(project) && processEnabled(process).
 // ---------------------------------------------------------------------------
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { dataDir } from "./data-dir";
 
-const DIR = path.join(os.homedir(), ".devwebui");
-const FILE = path.join(DIR, "state.json");
+const stateFile = (): string => path.join(dataDir(), "state.json");
 
 interface StateShape {
   enabled: Record<string, boolean>; // process id -> on/off
@@ -29,7 +28,7 @@ const obj = (v: unknown): Record<string, boolean> =>
 function load(): StateShape {
   if (cache) return cache;
   try {
-    const j = JSON.parse(readFileSync(FILE, "utf8"));
+    const j = JSON.parse(readFileSync(stateFile(), "utf8"));
     cache = { enabled: obj(j?.enabled), projectEnabled: obj(j?.projectEnabled) };
   } catch {
     cache = { enabled: {}, projectEnabled: {} };
@@ -40,8 +39,8 @@ function load(): StateShape {
 function persist(): void {
   if (!cache) return;
   try {
-    mkdirSync(DIR, { recursive: true });
-    writeFileSync(FILE, JSON.stringify(cache, null, 2));
+    mkdirSync(dataDir(), { recursive: true });
+    writeFileSync(stateFile(), JSON.stringify(cache, null, 2));
   } catch {
     /* best-effort — losing a toggle is recoverable */
   }

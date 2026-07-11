@@ -19,6 +19,7 @@ import {
 } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import Hint from "@/components/Hint.vue";
+import { useTooltipConfig } from "@/lib/tooltip-config";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -49,6 +50,7 @@ const props = defineProps<{ connected: boolean; processes: ProcessView[]; busy?:
 const emit = defineEmits<{ add: []; notifications: []; settings: []; scan: [] }>();
 
 const { t } = useI18n({ useScope: "global" });
+const { enabled: tooltipsEnabled } = useTooltipConfig();
 const store = useAppStore();
 const { errors, viewMode, statusFilter, unreadNotifications } = storeToRefs(store);
 const running = computed(() => props.processes.filter((p) => p.status === "running").length);
@@ -188,7 +190,7 @@ async function updateApp() {
              the menu never opens. A native title is a safe, non-conflicting fallback. -->
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
-            <Button variant="ghost" size="icon" class="relative" :aria-label="t('header.more')" :title="t('header.moreTooltip')">
+            <Button variant="ghost" size="icon" class="relative" :aria-label="t('header.more')" :title="tooltipsEnabled ? t('header.moreTooltip') : undefined">
               <EllipsisVertical class="size-[1.15rem]" />
             </Button>
           </DropdownMenuTrigger>
@@ -196,22 +198,11 @@ async function updateApp() {
             <!-- View: a single split control — click the side you want active. -->
             <DropdownMenuLabel>{{ t("view.label") }}</DropdownMenuLabel>
             <div class="px-1 pb-1 pt-0.5">
+              <!-- Table leads: it's the default view. -->
               <div class="grid grid-cols-2 gap-1 rounded-md bg-muted p-1 text-sm">
                 <button
                   type="button"
-                  class="flex items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 font-medium transition-colors"
-                  :class="viewMode === 'cards'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'"
-                  :aria-label="t('view.cardView')"
-                  :aria-pressed="viewMode === 'cards'"
-                  @click="setViewMode('cards')"
-                >
-                  <LayoutGrid class="size-4" /> {{ t("view.cards") }}
-                </button>
-                <button
-                  type="button"
-                  class="flex items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 font-medium transition-colors"
+                  class="flex cursor-pointer items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 font-medium transition-colors"
                   :class="viewMode === 'table'
                     ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'"
@@ -220,6 +211,18 @@ async function updateApp() {
                   @click="setViewMode('table')"
                 >
                   <Table class="size-4" /> {{ t("view.table") }}
+                </button>
+                <button
+                  type="button"
+                  class="flex cursor-pointer items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 font-medium transition-colors"
+                  :class="viewMode === 'cards'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'"
+                  :aria-label="t('view.cardView')"
+                  :aria-pressed="viewMode === 'cards'"
+                  @click="setViewMode('cards')"
+                >
+                  <LayoutGrid class="size-4" /> {{ t("view.cards") }}
                 </button>
               </div>
             </div>

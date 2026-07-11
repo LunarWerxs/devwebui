@@ -7,7 +7,12 @@ import { materializeSettings, readSettings } from "./runtime";
 import { initConnections, pullNow, syncStatus } from "./connections";
 import { daemonPort } from "./constants";
 import { findFreePort, isPortListening } from "./ports";
-import { clearInstanceInfo, findLiveInstance, writeInstanceInfo } from "./instance";
+import {
+  clearInstanceInfo,
+  clearShutdownRequest,
+  findLiveInstance,
+  writeInstanceInfo,
+} from "./instance";
 import {
   setAutoUpdateEnabled,
   setAutoUpdateIntervalSecs,
@@ -16,6 +21,26 @@ import {
   startAutoUpdate,
   stopAutoUpdate,
 } from "./auto-update";
+import { initFileLogging } from "./log-file";
+
+// Persist console output to <CONFIG_DIR>/logs/daemon.log BEFORE anything else can throw, so
+// the crash reason logged just below actually survives the process (the tray runs us with a
+// hidden console, so without this the output would vanish). Best-effort; never throws.
+initFileLogging();
+
+// Last-resort crash handlers: an unhandled throw/rejection anywhere in the daemon logs what
+// happened and exits non-zero instead of dying silently (or, for a rejection, limping on in an
+// unknown state). The tray's health watchdog sees the daemon go unresponsive and relaunches it;
+// the console.error above is now teed to daemon.log, so the reason is on disk even after the
+// process is gone.
+process.on("uncaughtException", (err) => {
+  console.error("[devwebui] uncaught exception:", err);
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[devwebui] unhandled rejection:", reason);
+  process.exit(1);
+});
 
 // Single instance: if a DevWebUI daemon is already serving, don't start a second
 // one (a second would just hop to another port and confuse the launcher/MCP about
@@ -85,8 +110,13 @@ for (const file of readRegistry()) {
 
 // Advertise where we actually landed, then keep it tidy on a clean exit. (A hard
 // kill skips this; readers re-validate the pointer with /api/health, so a stale
-// file is harmless.)
-writeInstanceInfo(PORT);
+// file is harmless.) `portableMode` rides along as a launcher-facing extra so the
+// tray can decide app-window vs. tab without a round-trip to the daemon.
+writeInstanceInfo(PORT, { portableMode: startupSettings.portableMode === true });
+// Clear any stale "full shutdown" sentinel left by a previous (possibly hard-killed) run so a
+// leftover can't make a freshly-launched tray quit the instant it starts. Only a genuine
+// in-session UI shutdown (the /api/shutdown route) writes a fresh one; the tray watches for it.
+clearShutdownRequest();
 const cleanup = () => clearInstanceInfo();
 process.on("exit", cleanup);
 

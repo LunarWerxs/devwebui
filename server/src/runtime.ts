@@ -12,8 +12,8 @@
 // `npm run …`, `bunx …`, and everything else are left alone.
 // ---------------------------------------------------------------------------
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { dataDir } from "./data-dir";
 import { OS_SKIP, type SkipOs } from "./scan";
 import { AUTO_UPDATE_INTERVAL_DEFAULT_S, clampAutoUpdateInterval } from "./auto-update";
 import type { RuntimePref, Settings } from "../../shared/dto";
@@ -53,7 +53,7 @@ export function withRuntime(command: string, runtime?: Runtime): string {
 // Global settings (~/.devwebui/settings.json). The `Settings` shape lives in
 // the shared DTOs (re-exported above); the read/write functions stay here.
 // ---------------------------------------------------------------------------
-const SETTINGS_FILE = path.join(os.homedir(), ".devwebui", "settings.json");
+const settingsFile = (): string => path.join(dataDir(), "settings.json");
 const RUNTIME_PREFS: RuntimePref[] = ["auto", "node", "bun"];
 
 const cleanList = (v: unknown, fallback: string[]): string[] =>
@@ -106,7 +106,7 @@ const readOsSkip = (o: unknown, base: Record<SkipOs, string[]>): Record<SkipOs, 
 export function readSettings(): Settings {
   const d = skipToggleDefaults();
   try {
-    const s = JSON.parse(readFileSync(SETTINGS_FILE, "utf8"));
+    const s = JSON.parse(readFileSync(settingsFile(), "utf8"));
     return {
       runtime: RUNTIME_PREFS.includes(s.runtime) ? s.runtime : "auto",
       freePortOnStart: bool(s.freePortOnStart, true),
@@ -129,6 +129,7 @@ export function readSettings(): Settings {
       autoUpdateIntervalSecs: Number.isFinite(s.autoUpdateIntervalSecs)
         ? clampAutoUpdateInterval(s.autoUpdateIntervalSecs)
         : AUTO_UPDATE_INTERVAL_DEFAULT_S,
+      portableMode: bool(s.portableMode, false),
     };
   } catch {
     return {
@@ -143,6 +144,7 @@ export function readSettings(): Settings {
       osSkip: readOsSkip(null, OS_SKIP),
       autoUpdate: false,
       autoUpdateIntervalSecs: AUTO_UPDATE_INTERVAL_DEFAULT_S,
+      portableMode: false,
     };
   }
 }
@@ -173,12 +175,14 @@ export function writeSettings(patch: Partial<Settings>): Settings {
       patch.autoUpdateIntervalSecs !== undefined
         ? clampAutoUpdateInterval(patch.autoUpdateIntervalSecs)
         : cur.autoUpdateIntervalSecs,
+    portableMode: bool(patch.portableMode, cur.portableMode),
   };
-  mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
-  const tmp = `${SETTINGS_FILE}.${process.pid}.${Date.now()}.tmp`;
+  mkdirSync(dataDir(), { recursive: true });
+  const file = settingsFile();
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   try {
     writeFileSync(tmp, JSON.stringify(next, null, 2), { mode: 0o600 });
-    renameSync(tmp, SETTINGS_FILE);
+    renameSync(tmp, file);
   } catch (e) {
     try {
       rmSync(tmp, { force: true });
@@ -193,7 +197,7 @@ export function writeSettings(patch: Partial<Settings>): Settings {
 /** Ensure the on-disk file contains every key (incl. osSkip) so users can discover + hand-edit them. */
 export function materializeSettings(): void {
   try {
-    const raw = JSON.parse(readFileSync(SETTINGS_FILE, "utf8"));
+    const raw = JSON.parse(readFileSync(settingsFile(), "utf8"));
     if (raw && typeof raw === "object" && raw.osSkip) return; // already complete
   } catch {
     /* missing or invalid — (re)write below */

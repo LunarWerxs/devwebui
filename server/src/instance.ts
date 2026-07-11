@@ -5,21 +5,51 @@
 // records the port it ACTUALLY bound in runtime.json so launchers and the
 // /api/health probe can find it and enforce single-instance. Best-effort throughout.
 // ---------------------------------------------------------------------------
-import os from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { dataDir } from "./data-dir";
 import { createInstancePointer, type InstanceInfo } from "./instance-pointer.mjs";
 
 export type { InstanceInfo };
 
 const pointer = createInstancePointer({
-  // DEVWEBUI_HOME overrides the config dir so tests (and side-by-side instances) don't touch the
+  // dataDir() honors DEVWEBUI_HOME so tests (and side-by-side instances) don't touch the
   // real ~/.devwebui runtime pointer; see tests/setup.ts.
-  configDir: process.env.DEVWEBUI_HOME?.trim() || path.join(os.homedir(), ".devwebui"),
+  configDir: dataDir(),
   host: "localhost",
 });
 
 export const instanceFilePath = pointer.instanceFilePath;
 export const writeInstanceInfo = pointer.writeInstanceInfo;
+export const updateInstanceInfo = pointer.updateInstanceInfo;
 export const readInstanceInfo = pointer.readInstanceInfo;
 export const clearInstanceInfo = pointer.clearInstanceInfo;
 export const findLiveInstance = pointer.findLiveInstance;
+
+// ---------------------------------------------------------------------------
+// "Full shutdown requested" sentinel — a marker file the PowerShell tray host polls
+// so a user "Shut Down" from the web menu (or `devwebui stop`) tears down the WHOLE
+// app, notification-area icon included, not just the daemon. It lives beside
+// runtime.json in the data dir. Written by the shutdown route ONLY for a UI-source
+// request that lacks the tray's session token (i.e. NOT the tray's own Restart/Quit,
+// which carry it). Cleared on daemon boot and by the tray at startup, so a stale one
+// left by a hard-killed run never causes a spurious quit. Resolved lazily like
+// dataDir(); best-effort throughout (a tray that misses it still has its own Quit).
+// ---------------------------------------------------------------------------
+export function shutdownRequestPath(): string {
+  return path.join(dataDir(), "shutdown.request");
+}
+export function writeShutdownRequest(): void {
+  try {
+    writeFileSync(shutdownRequestPath(), JSON.stringify({ ts: Date.now() }), { mode: 0o600 });
+  } catch {
+    /* best-effort */
+  }
+}
+export function clearShutdownRequest(): void {
+  try {
+    rmSync(shutdownRequestPath(), { force: true });
+  } catch {
+    /* best-effort */
+  }
+}

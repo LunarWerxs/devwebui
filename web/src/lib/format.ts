@@ -23,6 +23,26 @@ export function formatBytes(bytes: number | null): string {
 }
 
 /**
+ * The "engine" of a command — the bare executable name that launches it, e.g.
+ * `node ../node_modules/vite/bin/vite.js --port 4180` → "node". Skips leading
+ * FOO=bar env-var assignments, honours a quoted first token, and strips the
+ * directory part plus common executable/script extensions.
+ */
+export function commandEngine(command: string): string {
+  let rest = command.trim();
+  for (let i = 0; i < 4 && rest; i++) {
+    const m = rest.match(/^(?:"([^"]+)"|'([^']+)'|(\S+))\s*/);
+    if (!m) break;
+    const token = m[1] ?? m[2] ?? m[3] ?? "";
+    rest = rest.slice(m[0].length);
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) continue; // env-var prefix
+    const base = token.split(/[\\/]/).pop() ?? token;
+    return base.replace(/\.(exe|cmd|bat|ps1|sh|mjs|cjs|js|ts)$/i, "") || token;
+  }
+  return command.trim().split(/\s+/)[0] ?? "";
+}
+
+/**
  * Browser URL for a process's dev server, or null when there's nothing to open.
  * Used to make the process title a click-through link. `host` is the configurable
  * link host (Settings → Open in browser); it defaults to `localhost`.

@@ -80,7 +80,7 @@ export default {
     stopAll: "Stop all",
     scan: "Scan for projects",
     settings: "Settings",
-    shutdown: "Shutdown server",
+    shutdown: "Shut down",
     shuttingDown: "Shutting down DevWebUI...",
     shutdownFailed: "Shutdown failed",
     actionFailed: "Action failed",
@@ -160,6 +160,8 @@ export default {
     logs: "Logs",
     star: "Star — pin to the top",
     unstar: "Unstar",
+    linkedWith: "Linked — starts and stops together with {names}",
+    companionBadge: "Companion — starts with any server in this project",
   },
   processForm: {
     addProcess: "Add process",
@@ -189,6 +191,11 @@ export default {
     runtimeBun: "Bun (faster Vite)",
     autostartLabel: "Autostart",
     autostartDescription: "Launch when DevWebUI starts",
+    companionLabel: "Companion",
+    companionDescription: "Start whenever any other server in this project is started",
+    linksLabel: "Linked servers",
+    linksDescription:
+      "These act as one unit with this server — starting or stopping any of them starts or stops the whole group",
     confirmDelete: "Confirm delete",
     cancelDelete: "cancel delete",
     delete: "Delete",
@@ -202,7 +209,7 @@ export default {
   processTable: {
     actionFailed: "Action failed",
     colProcess: "Process",
-    colCommand: "Command",
+    colEngine: "Engine",
     colStatus: "Status",
     colPort: "Port",
     colUptime: "Uptime",
@@ -229,6 +236,8 @@ export default {
     addProcess: "Add process",
     star: "Star",
     unstar: "Unstar",
+    linkedWith: "Linked — starts and stops together with {names}",
+    companionBadge: "Companion — starts with any server in this project",
   },
   projectPanel: {
     triggerAriaLabel: "{name} — {running}/{total} running, {action}",
@@ -278,6 +287,9 @@ export default {
     language: "Language",
     displayLanguage: "Display language",
     languageReview: "This translation is a machine-generated draft and may contain errors.",
+    showTooltips: "Show tooltips",
+    showTooltipsHelp:
+      "Hover help across the app — icon buttons, status badges, info bubbles like this one. Turn off to keep the UI quiet; this row's own info bubble always stays reachable.",
     runtime: "Runtime",
     defaultRuntime: "Default runtime",
     runtimeHelp:
@@ -285,6 +297,10 @@ export default {
     runtimeAuto: "Auto — run each command exactly as written",
     runtimeBun: "Prefer Bun — faster, lighter Vite",
     runtimeNode: "Prefer Node",
+    // Short forms shown in the closed select trigger (the full text won't fit).
+    runtimeAutoShort: "Auto",
+    runtimeBunShort: "Prefer Bun",
+    runtimeNodeShort: "Prefer Node",
     restartNow: "Restart running processes now",
     restartNowHint: "Apply a runtime change to live servers immediately",
     startingServers: "Starting servers",
@@ -303,6 +319,16 @@ export default {
     autoUpdateHelp:
       'When <strong class="text-foreground">on</strong>, DevWebUI periodically checks for a newer version and, if your local copy has <strong class="text-foreground">no uncommitted changes</strong>, pulls it, reinstalls, rebuilds, and restarts the daemon on its own — no prompt. Default <strong class="text-foreground">off</strong>, since it restarts the daemon unattended. A dirty working tree is never touched.',
     openInBrowser: "Open in browser",
+    portableMode: "Portable window",
+    portableModeHelp:
+      "Opens DevWebUI in its own chromeless window (no tabs or address bar) instead of a browser tab. The desktop launcher and tray icon follow this setting too.",
+    portableOpened: "Opened in portable window - you can close this tab",
+    tabGeneral: "General",
+    tabServers: "Servers",
+    tabProjects: "Projects",
+    portableNoBrowser: "Couldn't open a portable window - no Edge or Chrome found",
+    portableOpenFailed:
+      "Saved, but the portable window couldn't be opened - it will apply on the next launch",
     linkHost: "Link host",
     linkHostHelp:
       'When you click a running process\'s title, DevWebUI opens <code>http://&lt;host&gt;:&lt;port&gt;</code> in a new tab. This is the <strong class="text-foreground">&lt;host&gt;</strong> part. Set it to a LAN IP or hostname to reach servers from another device. Leave it blank to use the address you opened DevWebUI on. A process can override the whole address with its own <code>url</code> field.',

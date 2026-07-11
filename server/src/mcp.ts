@@ -77,13 +77,15 @@ const TOOLS: McpEngineTool[] = [
   },
   {
     name: "start_process",
-    description: "Start a managed process by id.",
+    description:
+      "Start a managed process by id. Its linked processes (`links`) and the project's companion processes start with it.",
     inputSchema: S({ id: { type: "string" } }, ["id"]),
     run: (a) => api(ROUTES.processAction.build(str(a.id), "start"), { method: "POST" }),
   },
   {
     name: "stop_process",
-    description: "Stop a managed process by id.",
+    description:
+      "Stop a managed process by id. Its linked processes (`links`) stop with it; companions are left running.",
     inputSchema: S({ id: { type: "string" } }, ["id"]),
     run: (a) => api(ROUTES.processAction.build(str(a.id), "stop"), { method: "POST" }),
   },

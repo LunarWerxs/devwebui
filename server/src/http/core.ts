@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import type { Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { streamSSE } from "hono/streaming";
@@ -7,6 +8,13 @@ import { readSettings, writeSettings, type RuntimePref } from "../runtime";
 import { applyUpdate, checkForUpdate } from "../updater";
 import { setAutoUpdateEnabled, setAutoUpdateIntervalSecs } from "../auto-update";
 import { ROUTES } from "../../../shared/routes";
+import {
+  instanceFilePath,
+  readInstanceInfo,
+  updateInstanceInfo,
+  writeShutdownRequest,
+} from "../instance";
+import { openPortableWindow } from "../portable-window.mjs";
 
 export interface Client {
   send: (event: string, data: unknown) => Promise<void>;
@@ -196,6 +204,12 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
     const uiHeader = c.req.header("x-devwebui-shutdown-source") === "ui";
     if (!options.requestShutdown || (!uiHeader && (!token || trayHeader !== token)))
       return fail(c, "forbidden", 403);
+    // A UI-source shutdown WITHOUT the tray's session token is a user "Shut Down" from the web
+    // menu (or `devwebui stop`) — a request to terminate the WHOLE app, tray included. Drop a
+    // sentinel the tray host polls so it disposes its notification-area icon and exits too. The
+    // tray's own Restart/Rebuild/Quit carry the token, so they don't trip this; harmless when no
+    // tray is running (cleared on the next daemon boot).
+    if (uiHeader && (!token || trayHeader !== token)) writeShutdownRequest();
     await options.requestShutdown();
     return c.json({ ok: true });
   });
@@ -225,6 +239,7 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
         Number.isFinite(body.autoUpdateIntervalSecs)
           ? body.autoUpdateIntervalSecs
           : undefined,
+      portableMode: optBool(body.portableMode),
     });
     manager.globalRuntime = saved.runtime;
     manager.freePortOnStart = saved.freePortOnStart;
@@ -234,11 +249,29 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
     // server/src/auto-update.ts). The interval setter clamps — persist the value it settled on.
     setAutoUpdateEnabled(saved.autoUpdate);
     setAutoUpdateIntervalSecs(saved.autoUpdateIntervalSecs);
+    // Keep the runtime pointer's launcher-facing flag current so the tray sees the new
+    // value on its NEXT open/double-click without waiting for a daemon restart.
+    updateInstanceInfo({ portableMode: saved.portableMode });
     // Apply to anything already running — fire-and-forget so this response can't hang on
     // a stubborn kill; the GUI sees the restarts via SSE status events.
     if (body.restart) void manager.restartRunning();
     return c.json(saved);
   });
+
+  // ---- portable window (chromeless app window instead of a browser tab) ----
+  app.post(ROUTES.portableWindow, async (c) =>
+    guard(c, async () => {
+      const url = readInstanceInfo()?.url ?? `http://localhost:${options.port ?? ""}`;
+      // Dedicated profile so Chromium remembers the app window's size/position across
+      // launches instead of sharing (and fighting over) the user's main browser profile.
+      // Family convention: <configDir>/portable-profile, a sibling of runtime.json — the
+      // PS tray derives the identical path from the same runtime.json location so both
+      // open paths share one profile.
+      const profileDir = path.join(path.dirname(instanceFilePath()), "portable-profile");
+      const result = await openPortableWindow(url, { profileDir });
+      return c.json(result);
+    }),
+  );
 
   // ---- error log ----
   app.get(ROUTES.errors, (c) => c.json(manager.listErrors()));

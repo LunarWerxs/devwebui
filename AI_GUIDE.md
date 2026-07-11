@@ -29,7 +29,10 @@ and put it in the repo root.
       "url": "/admin",         // optional; where the title links. Path appended to http://<host>:<port>, or an absolute http(s):// URL
       "color": "#6366f1",      // optional; a hex dot color for the card
       "autostart": true,       // optional; start it automatically when the project loads
-      "env": { "NODE_ENV": "development" } // optional; extra env vars for this process
+      "env": { "NODE_ENV": "development" }, // optional; extra env vars for this process
+      "waitForPort": "web",    // optional; wait for a literal port, or a sibling id's port, before spawning
+      "links": ["web"],        // optional; sibling ids that start together with this one (symmetric, transitive)
+      "companion": true        // optional; starts whenever any other process in the project is started individually
     }
   ]
 }
@@ -50,6 +53,9 @@ and put it in the repo root.
 | `color`      | no       | Hex like `#10b981`. |
 | `autostart`  | no       | `true` to launch on load. Use it for the main server(s), not every one. |
 | `env`        | no       | `{ "KEY": "value" }` map merged into the process environment. |
+| `waitForPort`| no       | Dependency-ordered startup. A number waits on that literal port; a string names a sibling process's `id` and waits on THAT process's declared `port` instead. |
+| `links`      | no       | Sibling process `id`s (same file) that start together with this one. Symmetric and transitive; starting any member (single-process start in the GUI, or MCP `start_process`) starts the whole group. Unknown ids are ignored at runtime. |
+| `companion`  | no       | `true` to start this process whenever any *other* process in the project is started individually. For a shared database or proxy everything needs but nobody starts by hand. |
 
 ### Authoring guidance
 
@@ -63,6 +69,10 @@ and put it in the repo root.
   (e.g. `"cwd": "apps/api"`), keeping ONE `.devwebui` at the repo root.
 - Only `autostart` the server(s) the developer always wants up — not heavy or
   occasional ones.
+- Use `links` when two or more servers only make sense running together (e.g. a
+  frontend and the API it calls); use `companion` for a shared always-needed
+  service (e.g. a database) that should start alongside whatever the developer
+  starts by hand.
 
 ---
 
@@ -94,7 +104,10 @@ Output ONLY the file content as JSON in this exact schema — no prose, no code 
       "port": <number, omit if unknown>,
       "url": "<path like /admin or an absolute http(s):// URL, omit unless the app's entry isn't the server root>",
       "color": "<hex, optional>",
-      "autostart": <true only for the main server(s), omit otherwise>
+      "autostart": <true only for the main server(s), omit otherwise>,
+      "waitForPort": "<literal port number, or a sibling id to wait on that id's port, omit if no ordering needed>",
+      "links": ["<sibling id>"],     // omit unless servers must start as a group
+      "companion": <true only for a shared service every other process needs, omit otherwise>
     }
   ]
 }
@@ -104,6 +117,9 @@ Rules:
   saved (default the repo root). In a monorepo, set cwd per package.
 - Include "port" whenever you can determine it from the command or config.
 - Only set "autostart": true on the server(s) a developer always wants running.
+- Only set "links" when servers clearly belong together (e.g. a frontend and the
+  API it calls); only set "companion" for a shared always-needed service (e.g. a
+  database or proxy), not for ordinary servers.
 - Required per process: id, name, command. Everything else is optional.
 - If you cannot find any dev server, say so instead of inventing one.
 
@@ -129,7 +145,9 @@ agents share one state. Register it as shown in the README's
 **Processes**
 
 - `list_processes` — every managed process with live status, pid, uptime, CPU and memory.
-- `start_process` / `stop_process` / `restart_process` — act on one process by id.
+- `start_process` / `stop_process` / `restart_process` — act on one process by id. `start_process`
+  also starts any linked siblings (`links`) and any companion processes (`companion: true`) in the
+  same project; stop and restart only affect the one process.
 - `start_all` / `stop_all` — every managed process at once.
 - `enable_process` / `disable_process` — turn one process on/off and start/stop it; persists across restarts.
 - `take_over_autostart` — retire a repo's external dev-server auto-start (VS Code `tasks.json` `runOn:folderOpen`, the Vite extension's `vite.autoStart`) so DevWebUI is the sole launcher. Backs up each edited file first. Pass the project folder (absolute path).

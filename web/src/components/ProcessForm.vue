@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronRight, TriangleAlert, X } from "@lucide/vue";
+import { Check, ChevronRight, TriangleAlert, X } from "@lucide/vue";
 import {
   Dialog,
   DialogContent,
@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import IconButton from "./IconButton.vue";
 import {
   Select,
   SelectContent,
@@ -23,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { addProcess, deleteProcess, updateProcess } from "@/api";
+import { useAppStore } from "@/store";
 import type { ProcessInput, ProcessView } from "@/types";
 
 const { t } = useI18n({ useScope: "global" });
@@ -34,6 +36,7 @@ const props = defineProps<{
   initial: ProcessView | null;
 }>();
 const emit = defineEmits<{ saved: [] }>();
+const store = useAppStore();
 
 const form = reactive({
   id: "",
@@ -50,7 +53,23 @@ const form = reactive({
   // port to be listening before this process spawns. Typed as free text; parsed to
   // a number when it looks like one, else sent as the sibling-id string.
   waitForPort: "",
+  // Sibling localIds that start together with this process (symmetric, transitive).
+  links: [] as string[],
+  // Start this process whenever any other process in the project is started.
+  companion: false,
 });
+
+/** The project's other processes — the candidates for the "linked servers" picker. */
+const linkCandidates = computed(() => {
+  const processes = store.projects.find((p) => p.id === props.projectId)?.processes ?? [];
+  return processes.filter((p) => p.localId !== (props.initial?.localId ?? form.id));
+});
+
+function toggleLink(localId: string) {
+  form.links = form.links.includes(localId)
+    ? form.links.filter((l) => l !== localId)
+    : [...form.links, localId];
+}
 const runtimeOptions = [
   { label: "auto", value: "auto" },
   { label: "node", value: "node" },
@@ -77,6 +96,8 @@ watch(open, (v) => {
   form.autostart = p?.autostart ?? false;
   form.runtime = p?.runtime ?? "auto";
   form.waitForPort = p?.waitForPort != null ? String(p.waitForPort) : "";
+  form.links = [...(p?.links ?? [])];
+  form.companion = p?.companion ?? false;
 });
 
 function payload(): ProcessInput {
@@ -89,8 +110,13 @@ function payload(): ProcessInput {
     port: form.port ?? undefined,
     url: form.url.trim() || undefined,
     autostart: form.autostart || undefined,
+    // Not edited here, but the update replaces the whole file entry — echo it back
+    // so saving an edit doesn't silently un-star the process.
+    starred: props.initial?.starred || undefined,
     runtime: form.runtime === "auto" ? undefined : form.runtime,
     waitForPort: parseWaitForPort(form.waitForPort),
+    links: form.links.length ? form.links : undefined,
+    companion: form.companion || undefined,
   };
 }
 
@@ -191,6 +217,46 @@ async function remove() {
             :aria-label="t('processForm.autostartLabel')"
             @update:model-value="(v: boolean) => (form.autostart = v)"
           />
+        </div>
+
+        <div class="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/40 px-3.5 py-3">
+          <div>
+            <div class="text-sm font-medium">{{ t("processForm.companionLabel") }}</div>
+            <div class="mt-0.5 text-xs text-muted-foreground">{{ t("processForm.companionDescription") }}</div>
+          </div>
+          <Switch
+            id="pf-companion"
+            :model-value="form.companion"
+            :aria-label="t('processForm.companionLabel')"
+            @update:model-value="(v: boolean) => (form.companion = v)"
+          />
+        </div>
+
+        <div v-if="linkCandidates.length" class="flex flex-col gap-1.5">
+          <Label>{{ t("processForm.linksLabel") }}</Label>
+          <div class="text-xs text-muted-foreground">{{ t("processForm.linksDescription") }}</div>
+          <div class="mt-1 grid grid-cols-2 gap-1.5 max-[520px]:grid-cols-1">
+            <button
+              v-for="p in linkCandidates"
+              :key="p.localId"
+              type="button"
+              class="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm transition-colors"
+              :class="form.links.includes(p.localId)
+                ? 'border-primary/50 bg-primary/5 text-foreground'
+                : 'text-muted-foreground hover:bg-accent'"
+              :aria-pressed="form.links.includes(p.localId)"
+              @click="toggleLink(p.localId)"
+            >
+              <span class="flex min-w-0 items-center gap-2">
+                <span
+                  class="size-2.5 shrink-0 rounded-full"
+                  :style="{ backgroundColor: p.color || 'var(--primary)' }"
+                />
+                <span class="truncate">{{ p.name }}</span>
+              </span>
+              <Check v-if="form.links.includes(p.localId)" class="size-4 shrink-0 text-primary" />
+            </button>
+          </div>
         </div>
 
         <div class="border-t border-border pt-3.5">
@@ -294,16 +360,16 @@ async function remove() {
             <Button type="button" variant="destructive" :disabled="saving" @click="remove">
               {{ t("processForm.confirmDelete") }}
             </Button>
-            <Button
+            <IconButton
               type="button"
               variant="ghost"
               size="icon"
-              :aria-label="t('processForm.cancelDelete')"
+              :tooltip="t('processForm.cancelDelete')"
               :disabled="saving"
               @click="confirmDelete = false"
             >
               <X class="size-4" />
-            </Button>
+            </IconButton>
           </div>
           <Button
             v-else-if="mode === 'edit'"

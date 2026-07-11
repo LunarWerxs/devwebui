@@ -29,11 +29,13 @@ import IconButton from "./IconButton.vue";
 import { disableProject, enableProject, startProject, stopProject } from "@/api";
 import { useAppStore } from "@/store";
 import { useRunAction } from "@/lib/useAction";
+import { useTooltipConfig } from "@/lib/tooltip-config";
 import { statusPill } from "@/lib/severity";
 import { arrangeProcesses } from "@/lib/arrange";
 import type { ProcessView, ProjectView } from "@/types";
 
 const { t } = useI18n({ useScope: "global" });
+const { enabled: tooltipsEnabled } = useTooltipConfig();
 
 const props = defineProps<{ project: ProjectView }>();
 const emit = defineEmits<{
@@ -122,7 +124,7 @@ const runAction = useRunAction("projectPanel.actionFailed");
           :model-value="project.enabled"
           class="mr-1"
           :aria-label="project.enabled ? t('projectPanel.disableStack', { name: project.name }) : t('projectPanel.enableStack', { name: project.name })"
-          :title="project.enabled ? t('projectPanel.stackOnTitle') : t('projectPanel.stackOffTitle')"
+          :title="tooltipsEnabled ? (project.enabled ? t('projectPanel.stackOnTitle') : t('projectPanel.stackOffTitle')) : undefined"
           @update:model-value="onToggleStack"
         />
         <IconButton v-if="open" :tooltip="t('projectPanel.startAll')" @click="runAction(() => startProject(project.id))">
@@ -157,7 +159,9 @@ const runAction = useRunAction("projectPanel.actionFailed");
       >
         {{ t("projectPanel.noProcessesMatch") }}
       </p>
-      <div v-else-if="viewMode === 'table'" class="px-2.5 pb-4 pt-0 sm:px-4">
+      <!-- pt-1 keeps the first row's top border clear of the CollapsibleContent's
+           overflow-hidden edge, which otherwise shaves it at some zoom levels. -->
+      <div v-else-if="viewMode === 'table'" class="px-2.5 pb-4 pt-1 sm:px-4">
         <ProcessTable
           :processes="arranged"
           @logs="(p) => emit('logs', p.id)"
@@ -165,7 +169,7 @@ const runAction = useRunAction("projectPanel.actionFailed");
           @errors="(p) => emit('errorsProcess', p.id)"
         />
       </div>
-      <div v-else class="grid grid-cols-1 gap-4 px-2.5 pb-4 pt-0 sm:grid-cols-2 sm:px-4 xl:grid-cols-3">
+      <div v-else class="grid grid-cols-1 gap-4 px-2.5 pb-4 pt-1 sm:grid-cols-2 sm:px-4">
         <ProcessCard
           v-for="p in arranged"
           :key="p.id"

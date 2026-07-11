@@ -113,6 +113,17 @@ export const saveSettings = (patch: Partial<Settings> & { restart?: boolean }) =
   reqJson<Settings>(ROUTES.settings, jsonInit("PUT", patch));
 
 /**
+ * Open the app UI in a chromeless Chromium app window (Portable mode). Best-effort:
+ * resolves `{ ok: false, reason }` instead of throwing when no Edge/Chrome is installed
+ * or the spawn fails — the caller surfaces that to the user instead of treating it as fatal.
+ */
+export const openPortableWindow = () =>
+  reqJson<{ ok: true; browser: string } | { ok: false; reason: "no-browser" | "spawn-failed" }>(
+    ROUTES.portableWindow,
+    { method: "POST" },
+  );
+
+/**
  * Toggle the opt-in silent auto-update (checks the update remote on a schedule and, when a
  * newer commit is available on a CLEAN tree, applies it and self-relaunches the daemon). Default
  * OFF. Pass `intervalSecs` to also set the check cadence (clamped server-side to [900, 604800]).

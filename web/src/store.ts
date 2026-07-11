@@ -92,6 +92,12 @@ export const useAppStore = defineStore("app", () => {
    */
   const autoUpdate = ref(false);
   const autoUpdateIntervalSecs = ref(21_600);
+  /**
+   * Portable mode: the app UI opens in a chromeless Chromium app window instead of a
+   * browser tab, both from the in-app toggle and the tray/desktop launcher. Mirrors the
+   * server's `portableMode` setting. Default OFF. Loaded on startup, refreshed after a save.
+   */
+  const portableMode = ref(false);
   /** Toggle auto-update (and optionally its check cadence in seconds); reflects the saved value. */
   async function setAutoUpdate(enabled: boolean, intervalSecs?: number) {
     const saved = await api.setAutoUpdate(enabled, intervalSecs);
@@ -106,6 +112,7 @@ export const useAppStore = defineStore("app", () => {
       linkHost.value = s.linkHost ?? ""; // blank → resolved to the page host at the link site; tolerate an older daemon that omits the key
       autoUpdate.value = s.autoUpdate ?? false;
       autoUpdateIntervalSecs.value = s.autoUpdateIntervalSecs ?? 21_600;
+      portableMode.value = s.portableMode ?? false;
     } catch {
       /* keep the optimistic default — Settings still reads/writes directly */
     }
@@ -153,16 +160,13 @@ export const useAppStore = defineStore("app", () => {
   }
 
   /**
-   * How every project panel lays out its processes — "cards" (the grid) or
-   * "table" (a dense, scan-friendly row per process). Without an explicit user
-   * choice, large projects default to the table so stacks of 4+ servers scan well.
+   * How every project panel lays out its processes — "table" (a dense, scan-friendly
+   * row per process; the default) or "cards" (the grid). Persists once the user
+   * picks explicitly.
    */
   const viewModePreference = ref<ViewMode | null>(readSavedViewMode());
-  const defaultViewMode = computed<ViewMode>(() =>
-    projects.value.some((p) => p.processes.length > 3) ? "table" : "cards",
-  );
   const viewMode = computed<ViewMode>({
-    get: () => viewModePreference.value ?? defaultViewMode.value,
+    get: () => viewModePreference.value ?? "table",
     set: (mode) => {
       viewModePreference.value = mode;
       writeSavedViewMode(mode);
@@ -514,6 +518,7 @@ export const useAppStore = defineStore("app", () => {
     linkHost,
     autoUpdate,
     autoUpdateIntervalSecs,
+    portableMode,
     setAutoUpdate,
     loadSettings,
     notifyScan,

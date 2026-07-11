@@ -19,6 +19,10 @@ export interface ProcessDef {
   runtime?: "node" | "bun"; // launch this command under Node or Bun (rewrites the leading runtime)
   /** Dependency-ordered startup: a literal port, or a sibling process's `localId`, to wait on before spawning. */
   waitForPort?: number | string;
+  /** Linked servers (sibling `localId`s): starting any member of a linked group starts the whole group. */
+  links?: string[];
+  /** Companion: starts whenever any other process in this project is started individually. */
+  companion?: boolean;
   projectId: string;
   projectName: string;
 }

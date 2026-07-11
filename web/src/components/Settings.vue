@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useTheme } from "@/lib/theme";
+import { useTooltipConfig } from "@/lib/tooltip-config";
 import { useI18n } from "vue-i18n";
 import {
   Activity,
+  AppWindow,
   Cpu,
   ExternalLink,
   FilterX,
   FolderX,
   Languages,
+  MessageCircleQuestion,
   Moon,
   Plug,
   Power,
@@ -18,6 +21,7 @@ import {
   Unplug,
 } from "@lucide/vue";
 import SettingsPanel from "@/shell/SettingsPanel.vue";
+import SettingsTabs from "@/shell/SettingsTabs.vue";
 import SettingsGroup from "@/shell/SettingsGroup.vue";
 import SettingsRow from "@/shell/SettingsRow.vue";
 import type { PushPanelSide } from "@/shell/usePushPanel";
@@ -34,9 +38,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "vue-sonner";
-import InfoHint from "./InfoHint.vue";
+import InfoHint from "@/shell/InfoHint.vue";
 import CloudSyncSection from "./settings/CloudSyncSection.vue";
-import { getSettings, saveSettings, type RuntimePref } from "@/api";
+import { getSettings, openPortableWindow, saveSettings, type RuntimePref } from "@/api";
 import { useAppStore } from "@/store";
 import { setLocale } from "@/i18n";
 import { LOCALES, isMachineDraft, type LocaleCode } from "@/i18n/locales";
@@ -52,6 +56,10 @@ const { t, locale } = useI18n({ useScope: "global" });
 // Light/dark/system lives here. Writable: assigning 'light' | 'dark' | 'system'
 // persists to localStorage and toggles <html class="dark"> via the shared composable.
 const { mode: theme } = useTheme();
+
+// Kit-level tooltip kill-switch (localStorage-persisted, shared across the whole app via
+// TooltipProvider). Bound directly here — no server round-trip, no shared/dto.ts change.
+const { enabled: tooltipsEnabled } = useTooltipConfig();
 
 // Language picker: reads/writes the global i18n locale via setLocale (which persists
 // the choice and updates <html lang>). Only English ships today; the list grows from
@@ -73,7 +81,24 @@ const skipMac = ref(false);
 const skipLinux = ref(false);
 const restartNow = ref(true);
 const autoUpdate = ref(false);
+const portableMode = ref(false);
+// Pre-edit snapshot of portableMode as THIS panel loaded it. save() detects the
+// off->on transition against this, not store.portableMode: the store hydrates from
+// its own unawaited fetch and can still hold its default when the user hits Save,
+// which would misread "already on" as "just turned on" and pop an unwanted window.
+const loadedPortableMode = ref(false);
 const saving = ref(false);
+
+// The panel groups its sections under three tabs so the everyday knobs come first.
+// Sections stay mounted behind v-show (SettingsTabs rule): the panel-open watcher
+// below hydrates every tab's fields in one go.
+type TabId = "general" | "servers" | "projects";
+const tab = ref<TabId>("general");
+const tabs = computed<{ id: TabId; label: string }[]>(() => [
+  { id: "general", label: t("settings.tabGeneral") },
+  { id: "servers", label: t("settings.tabServers") },
+  { id: "projects", label: t("settings.tabProjects") },
+]);
 
 // OS names are proper nouns — deliberately left untranslated.
 const skipGroups = [
@@ -82,16 +107,19 @@ const skipGroups = [
   { key: "skipLinux" as const, label: "Linux", model: skipLinux },
 ];
 
+// `label` is the full descriptive text shown in the open list; `short` is what the
+// closed trigger shows (the full text doesn't fit in the trigger's width).
 const options = computed(() => [
-  { label: t("settings.runtimeAuto"), value: "auto" },
-  { label: t("settings.runtimeBun"), value: "bun" },
-  { label: t("settings.runtimeNode"), value: "node" },
+  { label: t("settings.runtimeAuto"), short: t("settings.runtimeAutoShort"), value: "auto" },
+  { label: t("settings.runtimeBun"), short: t("settings.runtimeBunShort"), value: "bun" },
+  { label: t("settings.runtimeNode"), short: t("settings.runtimeNodeShort"), value: "node" },
 ]);
 
 watch(open, async (v) => {
   if (!v) return;
   saving.value = false;
   restartNow.value = true; // reset to the default each open
+  tab.value = "general"; // every open lands back on the everyday tab
   try {
     const s = await getSettings();
     runtime.value = s.runtime;
@@ -105,6 +133,8 @@ watch(open, async (v) => {
     skipMac.value = s.skipMac;
     skipLinux.value = s.skipLinux;
     autoUpdate.value = s.autoUpdate ?? false;
+    portableMode.value = s.portableMode ?? false;
+    loadedPortableMode.value = portableMode.value;
   } catch (e) {
     toast.error(e instanceof Error ? e.message : t("settings.loadFailed"));
   }
@@ -112,6 +142,7 @@ watch(open, async (v) => {
 
 async function save() {
   saving.value = true;
+  const turningPortableOn = portableMode.value && !loadedPortableMode.value;
   try {
     const scanExclude = excludeText.value
       .split(/[\n,]/)
@@ -130,15 +161,30 @@ async function save() {
       skipLinux: skipLinux.value,
       restart: restartNow.value,
       autoUpdate: autoUpdate.value,
+      portableMode: portableMode.value,
     });
     // Reflect into the store so the CPU/Mem columns and process links update immediately.
     store.monitorResources = saved.monitorResources;
     store.linkHost = saved.linkHost;
     store.autoUpdate = saved.autoUpdate;
     store.autoUpdateIntervalSecs = saved.autoUpdateIntervalSecs;
+    store.portableMode = saved.portableMode;
+    loadedPortableMode.value = saved.portableMode;
     // Saving keeps the panel open (owner request); the store reflects the change live and the
     // sr-only "saving" announcement provides feedback.
     toast.success(t("settings.saved"));
+    // Portable mode just turned ON: open this tab's own UI in a chromeless app window now,
+    // same as the tray/desktop launcher would on its next open. Own try/catch: the save
+    // already succeeded, so a transport failure here must not toast "save failed".
+    if (turningPortableOn && saved.portableMode) {
+      try {
+        const result = await openPortableWindow();
+        if (result.ok) toast.success(t("settings.portableOpened"));
+        else toast.error(t("settings.portableNoBrowser"));
+      } catch {
+        toast.error(t("settings.portableOpenFailed"));
+      }
+    }
   } catch (e) {
     toast.error(e instanceof Error ? e.message : t("settings.saveFailed"));
   } finally {
@@ -163,7 +209,7 @@ async function save() {
         type="button"
         class="ml-auto grid size-7 place-items-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         :aria-label="t('settings.theme')"
-        :title="t('settings.theme')"
+        :title="tooltipsEnabled ? t('settings.theme') : undefined"
         @click="theme = theme === 'dark' ? 'light' : 'dark'"
       >
         <Sun v-if="theme === 'dark'" class="size-4" />
@@ -174,9 +220,12 @@ async function save() {
     <span aria-live="polite" class="sr-only">{{ saving ? t("settings.saving") : "" }}</span>
 
     <div class="flex flex-col gap-5">
-      <!-- General -->
-      <SettingsGroup v-if="LOCALES.length > 1" :label="t('settings.appearance')">
-        <SettingsRow :icon="Languages" :label="t('settings.displayLanguage')" :description="isMachineDraft(currentLocale) ? t('settings.languageReview') : undefined">
+      <SettingsTabs v-model="tab" :tabs="tabs" />
+
+      <!-- General: appearance, resource monitoring, app updates, cloud sync ──── -->
+      <div v-show="tab === 'general'" class="flex flex-col gap-5">
+      <SettingsGroup :label="t('settings.appearance')">
+        <SettingsRow v-if="LOCALES.length > 1" :icon="Languages" :label="t('settings.displayLanguage')" :description="isMachineDraft(currentLocale) ? t('settings.languageReview') : undefined">
           <template #control>
             <Select v-model="currentLocale">
               <SelectTrigger id="sd-locale" class="h-8 w-40" :aria-label="t('settings.displayLanguage')"><SelectValue /></SelectTrigger>
@@ -186,34 +235,9 @@ async function save() {
             </Select>
           </template>
         </SettingsRow>
-      </SettingsGroup>
-
-      <!-- Cloud sync -->
-      <CloudSyncSection />
-
-      <!-- Starting servers -->
-      <SettingsGroup :label="t('settings.startingServers')">
-        <SettingsRow :icon="Cpu" :label="t('settings.defaultRuntime')">
-          <template #info><InfoHint><span v-html="t('settings.runtimeHelp')" /></InfoHint></template>
-          <template #control>
-            <Select v-model="runtime">
-              <SelectTrigger id="sd-runtime" class="h-8 w-28" :aria-label="t('settings.defaultRuntime')"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="o in options" :key="o.value" :value="o.value">{{ o.label }}</SelectItem>
-              </SelectContent>
-            </Select>
-          </template>
-        </SettingsRow>
-        <SettingsRow :icon="Power" :label="t('settings.restartNow')" :description="t('settings.restartNowHint')">
-          <template #control><Switch id="sd-restart-now" v-model="restartNow" /></template>
-        </SettingsRow>
-        <SettingsRow :icon="Plug" :label="t('settings.autoStart')">
-          <template #info><InfoHint><span v-html="t('settings.autoStartHelp')" /></InfoHint></template>
-          <template #control><Switch id="sd-autostart" v-model="autoStartOnLaunch" /></template>
-        </SettingsRow>
-        <SettingsRow :icon="Unplug" :label="t('settings.freePort')">
-          <template #info><InfoHint><span v-html="t('settings.freePortHelp')" /></InfoHint></template>
-          <template #control><Switch id="sd-free-port" v-model="freePortOnStart" /></template>
+        <SettingsRow :icon="MessageCircleQuestion" :label="t('settings.showTooltips')">
+          <template #info><InfoHint>{{ t('settings.showTooltipsHelp') }}</InfoHint></template>
+          <template #control><Switch id="sd-show-tooltips" v-model="tooltipsEnabled" /></template>
         </SettingsRow>
       </SettingsGroup>
 
@@ -233,8 +257,46 @@ async function save() {
         </SettingsRow>
       </SettingsGroup>
 
+      <!-- Cloud sync -->
+      <CloudSyncSection />
+      </div>
+
+      <!-- Servers: how they start, and how the UI opens ─────────────────────── -->
+      <div v-show="tab === 'servers'" class="flex flex-col gap-5">
+      <!-- Starting servers -->
+      <SettingsGroup :label="t('settings.startingServers')">
+        <SettingsRow :icon="Cpu" :label="t('settings.defaultRuntime')">
+          <template #info><InfoHint><span v-html="t('settings.runtimeHelp')" /></InfoHint></template>
+          <template #control>
+            <Select v-model="runtime">
+              <SelectTrigger id="sd-runtime" class="h-8 w-28" :aria-label="t('settings.defaultRuntime')">
+                <SelectValue>{{ options.find((o) => o.value === runtime)?.short }}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="o in options" :key="o.value" :value="o.value">{{ o.label }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </template>
+        </SettingsRow>
+        <SettingsRow :icon="Power" :label="t('settings.restartNow')" :description="t('settings.restartNowHint')">
+          <template #control><Switch id="sd-restart-now" v-model="restartNow" /></template>
+        </SettingsRow>
+        <SettingsRow :icon="Plug" :label="t('settings.autoStart')">
+          <template #info><InfoHint><span v-html="t('settings.autoStartHelp')" /></InfoHint></template>
+          <template #control><Switch id="sd-autostart" v-model="autoStartOnLaunch" /></template>
+        </SettingsRow>
+        <SettingsRow :icon="Unplug" :label="t('settings.freePort')">
+          <template #info><InfoHint><span v-html="t('settings.freePortHelp')" /></InfoHint></template>
+          <template #control><Switch id="sd-free-port" v-model="freePortOnStart" /></template>
+        </SettingsRow>
+      </SettingsGroup>
+
       <!-- Open in browser -->
       <SettingsGroup :label="t('settings.openInBrowser')">
+        <SettingsRow :icon="AppWindow" :label="t('settings.portableMode')">
+          <template #info><InfoHint>{{ t('settings.portableModeHelp') }}</InfoHint></template>
+          <template #control><Switch id="sd-portable-mode" v-model="portableMode" /></template>
+        </SettingsRow>
         <div class="px-3.5 py-2.5">
           <div class="mb-1.5 flex items-center gap-1.5">
             <ExternalLink class="size-[18px] shrink-0 text-muted-foreground" />
@@ -244,7 +306,10 @@ async function save() {
           <Input id="sd-link-host" v-model="linkHost" class="font-mono text-sm" :placeholder="t('settings.linkHostPlaceholder')" />
         </div>
       </SettingsGroup>
+      </div>
 
+      <!-- Projects: discovery and scanning ──────────────────────────────────── -->
+      <div v-show="tab === 'projects'" class="flex flex-col gap-5">
       <!-- Project scanning -->
       <SettingsGroup :label="t('settings.projectScanning')">
         <SettingsRow :icon="Search" :label="t('settings.autoScan')" :description="t('settings.autoScanHint')">
@@ -283,6 +348,7 @@ async function save() {
           />
         </div>
       </SettingsGroup>
+      </div>
     </div>
 
     <template #footer>

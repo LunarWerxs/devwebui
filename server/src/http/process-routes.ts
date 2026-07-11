@@ -136,9 +136,11 @@ export function registerProcessRoutes(app: Hono, manager: Manager) {
     if (!manager.view(id)) return fail(c, "unknown process", 404);
     // Time-Travel Log Vault killer detail: start() returns the PREVIOUS run's crash
     // metadata (if it crashed) so the GUI can show "last time this failed with …".
+    // A linked group acts as one unit: startWithLinks also brings up the linked
+    // group + project companions; stopWithLinks brings the linked group down.
     let lastCrash = null;
-    if (action === "start") lastCrash = manager.start(id);
-    else if (action === "stop") await manager.stop(id);
+    if (action === "start") lastCrash = manager.startWithLinks(id);
+    else if (action === "stop") await manager.stopWithLinks(id);
     else if (action === "restart") await manager.restart(id);
     else if (action === "enable") manager.setProcessEnabled(id, true);
     else if (action === "disable") manager.setProcessEnabled(id, false);

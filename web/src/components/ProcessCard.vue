@@ -3,6 +3,8 @@ import { computed } from "vue";
 import {
   Cpu,
   ExternalLink,
+  Link2,
+  Magnet,
   MemoryStick,
   Pencil,
   Play,
@@ -16,6 +18,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import Hint from "./Hint.vue";
 import IconButton from "./IconButton.vue";
 import { storeToRefs } from "pinia";
 import { disableProcess, enableProcess, restart, start, stop } from "@/api";
@@ -23,7 +26,9 @@ import { useAppStore } from "@/store";
 import { useFreePortAction } from "@/lib/freePort";
 import { useLastCrashHint } from "@/lib/lastCrash";
 import { useRunAction } from "@/lib/useAction";
-import { formatBytes, formatUptime, processUrl } from "@/lib/format";
+import { useTooltipConfig } from "@/lib/tooltip-config";
+import { commandEngine, formatBytes, formatUptime, processUrl } from "@/lib/format";
+import { linkedPeers } from "@/lib/links";
 import { statusPill, WARNING_BANNER } from "@/lib/severity";
 import type { ProcessView } from "@/types";
 import { useI18n } from "vue-i18n";
@@ -31,6 +36,7 @@ import { useI18n } from "vue-i18n";
 const { t } = useI18n({ useScope: "global" });
 const freePortAction = useFreePortAction();
 const showLastCrashHint = useLastCrashHint();
+const { enabled: tooltipsEnabled } = useTooltipConfig();
 
 const props = defineProps<{ process: ProcessView }>();
 const emit = defineEmits<{ logs: []; edit: []; errors: [] }>();
@@ -62,6 +68,11 @@ const cpu = computed(() => (props.process.cpu != null ? `${props.process.cpu}%` 
 const mem = computed(() => formatBytes(props.process.memory));
 const errorCount = computed(() => errorCountByProcess.value[props.process.id] ?? 0);
 const pill = computed(() => statusPill(props.process.status));
+// Names of this process's linked group (either direction — links are symmetric).
+const linkedNames = computed(() => {
+  const siblings = store.projects.find((p) => p.id === props.process.projectId)?.processes ?? [];
+  return linkedPeers(props.process, siblings).map((p) => p.name);
+});
 
 const runAction = useRunAction("processCard.actionFailed");
 
@@ -79,7 +90,9 @@ function onStart() {
     class="gap-0 py-0 transition-colors hover:border-primary/30"
     :class="process.enabled ? '' : 'opacity-60'"
   >
-    <div class="flex flex-col gap-4 p-4">
+    <!-- Tightened (gap-3/p-3.5) since the command line moved into the engine chip —
+         keeps the two-wide grid dense without the cards feeling empty. -->
+    <div class="flex flex-col gap-3 p-3.5">
       <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
@@ -92,7 +105,7 @@ function onStart() {
               :href="linkUrl"
               target="_blank"
               rel="noopener noreferrer"
-              :title="t('processCard.openUrl', { url: linkUrl })"
+              :title="tooltipsEnabled ? t('processCard.openUrl', { url: linkUrl }) : undefined"
               class="group inline-flex min-w-0 items-center gap-1 rounded font-semibold underline-offset-4 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span class="truncate">{{ process.name }}</span>
@@ -103,7 +116,6 @@ function onStart() {
             </a>
             <h3 v-else class="truncate font-semibold">{{ process.name }}</h3>
           </div>
-          <code class="mt-1 block truncate text-xs text-muted-foreground">{{ process.command }}</code>
         </div>
         <div class="flex shrink-0 items-center gap-1.5">
           <button
@@ -114,6 +126,25 @@ function onStart() {
           >
             <TriangleAlert class="size-3" aria-hidden="true" /> {{ errorCount }}
           </button>
+          <Hint v-if="linkedNames.length" :label="t('processCard.linkedWith', { names: linkedNames.join(', ') })">
+            <span class="inline-flex" tabindex="0">
+              <Link2 class="size-3.5 text-muted-foreground/70" aria-hidden="true" />
+            </span>
+          </Hint>
+          <Hint v-if="process.companion" :label="t('processCard.companionBadge')">
+            <span class="inline-flex" tabindex="0">
+              <Magnet class="size-3.5 text-muted-foreground/70" aria-hidden="true" />
+            </span>
+          </Hint>
+          <!-- Command, condensed to its engine; hover the chip for the full command (same as the table). -->
+          <Hint>
+            <Badge variant="outline" class="font-mono text-[11px] font-normal text-muted-foreground">
+              {{ commandEngine(process.command) }}
+            </Badge>
+            <template #label>
+              <code class="break-all">{{ process.command }}</code>
+            </template>
+          </Hint>
           <Badge variant="outline" class="capitalize" :class="pill.badge">{{ pill.label }}</Badge>
           <IconButton
             :tooltip="process.starred ? t('processCard.unstar') : t('processCard.star')"
@@ -128,9 +159,9 @@ function onStart() {
             :model-value="process.enabled"
             :aria-label="process.enabled ? t('processCard.switchAriaLabelEnabled') : t('processCard.switchAriaLabelDisabled')"
             :title="
-              process.enabled
-                ? t('processCard.switchTitleEnabled')
-                : t('processCard.switchTitleDisabled')
+              tooltipsEnabled
+                ? (process.enabled ? t('processCard.switchTitleEnabled') : t('processCard.switchTitleDisabled'))
+                : undefined
             "
             @update:model-value="(v: boolean) => runAction(() => (v ? enableProcess(process.id) : disableProcess(process.id)))"
           />
@@ -176,13 +207,15 @@ function onStart() {
             <template #port>{{ process.port }}</template>
           </i18n-t>
         </span>
-        <button
-          class="rounded font-medium underline-offset-2 outline-none transition hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-warning/40 active:opacity-70"
-          :aria-label="t('processCard.freePortAriaLabel', { port: process.port })"
-          @click="freePortAction(process)"
-        >
-          {{ t("processCard.freeIt") }}
-        </button>
+        <Hint :label="t('processCard.freePortAriaLabel', { port: process.port })">
+          <button
+            class="cursor-pointer rounded font-medium underline-offset-2 outline-none transition hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-warning/40 active:opacity-70"
+            :aria-label="t('processCard.freePortAriaLabel', { port: process.port })"
+            @click="freePortAction(process)"
+          >
+            {{ t("processCard.freeIt") }}
+          </button>
+        </Hint>
       </div>
 
       <div class="flex items-center gap-1.5">

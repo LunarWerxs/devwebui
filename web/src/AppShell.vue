@@ -46,7 +46,11 @@ const addPrefillScan = ref<ScanResult | null>(null);
 const settingsOpen = ref(false);
 // Any right-side panel (settings, logs, notifications) pushes the page content.
 const anyPanel = computed(() => settingsOpen.value || drawerOpen.value || notificationsOpen.value);
-const { side: panelSide, shiftPx: panelShiftPx } = usePushPanel(anyPanel);
+// Shell content is centered at the shared `--container-max` token (styles/kit-base.css); keep
+// the push panel's content shift limited to its actual overlap with that centered column.
+const { side: panelSide, shiftPx: panelShiftPx } = usePushPanel(anyPanel, {
+  shellMaxWidth: () => 800,
+});
 
 // Process add/edit form state.
 const formOpen = ref(false);

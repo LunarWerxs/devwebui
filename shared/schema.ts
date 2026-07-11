@@ -36,6 +36,15 @@ export const ProcessSchema = z.object({
   // `id` (in this same file) and waits on THAT process's declared `port` — simpler than
   // a separate "depends on" field since "wait for the port" is the actual behavior.
   waitForPort: z.union([z.number().int().positive(), z.string().min(1)]).optional(),
+  // Linked servers: sibling `id`s (in this same file) that start together with this
+  // one. Links are symmetric and transitive — starting any member of a linked group
+  // (via the single-process start action) starts the whole group. Unknown ids are
+  // ignored at runtime (same leniency as a string `waitForPort`).
+  links: z.array(z.string().min(1).regex(ID_RE)).optional(),
+  // Companion: this process starts whenever any other process in the project is
+  // started individually (GUI start button / MCP start_process) — e.g. a shared
+  // database or proxy that everything needs but nobody wants to start by hand.
+  companion: z.boolean().optional(),
 });
 
 export const DevWebUIFileSchema = z.object({

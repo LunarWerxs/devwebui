@@ -24,13 +24,13 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { dataDir } from "./data-dir";
 import type { LastCrash } from "../../shared/dto";
 
 export type { LastCrash };
 
-const DIR = path.join(os.homedir(), ".devwebui", "logs");
+const vaultDir = (): string => path.join(dataDir(), "logs");
 const MAX_BYTES = 1_000_000; // ~1MB per file before rotating
 const KEEP_ROTATIONS = 2; // <id>.log.1, <id>.log.2 — <id>.log.3+ is discarded
 const STDERR_TAIL_LINES = 20;
@@ -41,16 +41,16 @@ function safeId(id: string): string {
 }
 
 function ensureDir(): void {
-  mkdirSync(DIR, { recursive: true });
+  mkdirSync(vaultDir(), { recursive: true });
 }
 
 function logPath(id: string, rotation = 0): string {
-  const base = path.join(DIR, `${safeId(id)}.log`);
+  const base = path.join(vaultDir(), `${safeId(id)}.log`);
   return rotation === 0 ? base : `${base}.${rotation}`;
 }
 
 function sidecarPath(id: string): string {
-  return path.join(DIR, `${safeId(id)}.lastcrash.json`);
+  return path.join(vaultDir(), `${safeId(id)}.lastcrash.json`);
 }
 
 /** Shift <id>.log -> .1 -> .2, dropping anything past KEEP_ROTATIONS, then start a fresh <id>.log. */
@@ -154,5 +154,5 @@ export const LOG_ROTATION_KEEP = KEEP_ROTATIONS;
 
 /** The vault's on-disk directory (for tests that need to clean up their fixture files). */
 export function logVaultDir(): string {
-  return DIR;
+  return vaultDir();
 }

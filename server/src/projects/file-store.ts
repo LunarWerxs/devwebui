@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { dataDir } from "../data-dir";
 import type { LoadedProject, ProcessDef } from "../types";
 import { DevWebUIFileSchema, ProcessSchema, type DevWebUIProcess } from "../../../shared/schema";
 
@@ -54,6 +54,8 @@ export function readDevWebUIFile(filePath: string): LoadedProject {
       url: p.url,
       runtime: p.runtime,
       waitForPort: p.waitForPort,
+      links: p.links,
+      companion: p.companion,
       projectId: id,
       projectName: parsed.name,
     };
@@ -89,6 +91,10 @@ function clean(proc: DevWebUIProcess): DevWebUIProcess {
   if (proc.url) out.url = proc.url;
   if (proc.runtime) out.runtime = proc.runtime;
   if (proc.waitForPort !== undefined) out.waitForPort = proc.waitForPort;
+  // De-dupe and drop self-references so a linked group never lists itself.
+  const links = [...new Set(proc.links ?? [])].filter((l) => l !== proc.id);
+  if (links.length) out.links = links;
+  if (proc.companion) out.companion = true;
   return out;
 }
 
@@ -113,6 +119,14 @@ export function updateProcessInFile(
   const parsed = ProcessSchema.parse(proc);
   const env = Object.hasOwn(proc, "env") ? parsed.env : raw.processes[i].env;
   raw.processes[i] = clean({ ...parsed, env });
+  // An id rename would dangle every sibling's link to the old id — follow the rename.
+  if (proc.id !== localId) {
+    raw.processes = raw.processes.map((p) =>
+      p.links?.includes(localId)
+        ? clean({ ...p, links: p.links.map((l) => (l === localId ? proc.id : l)) })
+        : p,
+    );
+  }
   writeRaw(filePath, raw);
 }
 
@@ -120,7 +134,12 @@ export function removeProcessFromFile(filePath: string, localId: string): void {
   const raw = readRaw(filePath);
   if (raw.processes.length <= 1)
     throw new Error("A project needs at least one process — remove the whole project instead.");
-  raw.processes = raw.processes.filter((p) => p.id !== localId);
+  raw.processes = raw.processes
+    .filter((p) => p.id !== localId)
+    // Prune links that pointed at the removed process (clean() drops emptied arrays).
+    .map((p) =>
+      p.links?.includes(localId) ? clean({ ...p, links: p.links.filter((l) => l !== localId) }) : p,
+    );
   writeRaw(filePath, raw);
 }
 
@@ -137,12 +156,11 @@ export function setProcessStarred(filePath: string, localId: string, starred: bo
 // Registry — the list of loaded .devwebui files, persisted across restarts so
 // DevWebUI auto-loads your codebases on launch.
 // ---------------------------------------------------------------------------
-const REGISTRY_DIR = path.join(os.homedir(), ".devwebui");
-const REGISTRY_FILE = path.join(REGISTRY_DIR, "registry.json");
+const registryFile = (): string => path.join(dataDir(), "registry.json");
 
 export function readRegistry(): string[] {
   try {
-    const r = JSON.parse(readFileSync(REGISTRY_FILE, "utf8"));
+    const r = JSON.parse(readFileSync(registryFile(), "utf8"));
     return Array.isArray(r.projects) ? r.projects.map(String) : [];
   } catch {
     return [];
@@ -150,8 +168,8 @@ export function readRegistry(): string[] {
 }
 
 function writeRegistry(paths: string[]): void {
-  mkdirSync(REGISTRY_DIR, { recursive: true });
-  writeFileSync(REGISTRY_FILE, JSON.stringify({ projects: paths }, null, 2));
+  mkdirSync(dataDir(), { recursive: true });
+  writeFileSync(registryFile(), JSON.stringify({ projects: paths }, null, 2));
 }
 
 const samePath = (a: string, b: string) => normalizePath(a) === normalizePath(b);
@@ -176,11 +194,11 @@ export function registryRemove(filePath: string): void {
 // the scan still walks into these folders, so the "show ignored" toggle can
 // reveal them and un-ignoring is instant.
 // ---------------------------------------------------------------------------
-const IGNORED_FILE = path.join(REGISTRY_DIR, "ignored.json");
+const ignoredFile = (): string => path.join(dataDir(), "ignored.json");
 
 export function readIgnoredProjects(): string[] {
   try {
-    const r = JSON.parse(readFileSync(IGNORED_FILE, "utf8"));
+    const r = JSON.parse(readFileSync(ignoredFile(), "utf8"));
     return Array.isArray(r.ignored) ? r.ignored.map(String) : [];
   } catch {
     return [];
@@ -188,8 +206,8 @@ export function readIgnoredProjects(): string[] {
 }
 
 function writeIgnoredProjects(dirs: string[]): void {
-  mkdirSync(REGISTRY_DIR, { recursive: true });
-  writeFileSync(IGNORED_FILE, JSON.stringify({ ignored: dirs }, null, 2));
+  mkdirSync(dataDir(), { recursive: true });
+  writeFileSync(ignoredFile(), JSON.stringify({ ignored: dirs }, null, 2));
 }
 
 export function ignoreProject(dir: string): void {

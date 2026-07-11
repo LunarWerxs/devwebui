@@ -32,6 +32,7 @@ export const ROUTES = {
   health: "/api/health",
   shutdown: "/api/shutdown",
   settings: "/api/settings",
+  portableWindow: "/api/portable-window",
   updates: "/api/updates",
   updatesApply: "/api/updates/apply",
   // Product pulse — deliberately neutral path + key.

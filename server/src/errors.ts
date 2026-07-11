@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { dataDir } from "./data-dir";
 import type { ErrorEvent, ErrorSource } from "../../shared/dto";
 
 export type { ErrorEvent, ErrorSource } from "../../shared/dto";
@@ -11,13 +11,9 @@ export type { ErrorEvent, ErrorSource } from "../../shared/dto";
 // NDJSON so the record survives restarts ("in case things break and you need to fix
 // them"). Source here is process stderr / crashes / error-looking stdout.
 
-// Data dir for the persisted error log. DEVWEBUI_HOME overrides the default so tests can point it
-// at a temp dir instead of polluting the real ~/.devwebui/errors.ndjson (which is what put a
-// phantom "N errors" count in the live GUI on boot). Resolved lazily — per save/load — so the
-// override can be set after this module is imported.
-function dataDir(): string {
-  return process.env.DEVWEBUI_HOME?.trim() || path.join(os.homedir(), ".devwebui");
-}
+// The persisted error log lives in the shared data dir (DEVWEBUI_HOME-overridable so tests
+// don't pollute the real ~/.devwebui/errors.ndjson — which is what put a phantom "N errors"
+// count in the live GUI on boot). Resolved lazily — per save/load.
 function errorsFile(): string {
   return path.join(dataDir(), "errors.ndjson");
 }

@@ -1,9 +1,10 @@
 // ───────────────────────────────────────────────────────────────────────────────
 // Time-Travel Log Vault: rotation, tail retrieval, and the last-crash sidecar that
-// backs the "next start() surfaces the previous crash" killer detail. This module
-// writes to the REAL ~/.devwebui/logs directory (no DI for the directory — matches
-// errors.ts/state.ts's existing homedir idiom), so every test uses a randomized,
-// unique process id and removes its own fixture files afterward.
+// backs the "next start() surfaces the previous crash" killer detail. The module
+// resolves its directory via the shared dataDir() (DEVWEBUI_HOME-overridable), so
+// under the test preload everything lands in the suite's temp dir — never the real
+// ~/.devwebui/logs. Tests still use randomized process ids and clean up after
+// themselves so parallel test files sharing the temp dir can't collide.
 // ───────────────────────────────────────────────────────────────────────────────
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, rmSync } from "node:fs";

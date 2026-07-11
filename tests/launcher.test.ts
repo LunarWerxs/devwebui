@@ -126,6 +126,35 @@ test("launcher chain is wired: shortcut → wscript → DevWebUI.vbs → DevWebU
   );
 });
 
+test("Portable mode: DevWebUI-Tray.ps1 opens the app UI through Open-AppUi, not a bare Start-Process", () => {
+  const tray = read(join(MISC, "DevWebUI-Tray.ps1"));
+  must(
+    /function Resolve-ChromiumBrowser/.test(tray),
+    "DevWebUI-Tray.ps1 is missing Resolve-ChromiumBrowser",
+  );
+  must(/function Open-AppUi/.test(tray), "DevWebUI-Tray.ps1 is missing Open-AppUi");
+  must(/--app=\$url/.test(tray), "Open-AppUi doesn't launch a chromeless --app= window");
+  must(
+    /\.portableMode/.test(tray),
+    "Open-AppUi doesn't read the portableMode field from runtime.json",
+  );
+  must(
+    /--user-data-dir=/.test(tray),
+    "Open-AppUi doesn't give the portable window a dedicated profile via --user-data-dir",
+  );
+  must(
+    /portable-profile/.test(tray),
+    "Open-AppUi doesn't derive the shared portable-profile dir from runtime.json's location",
+  );
+  // Every place the tray used to open a browser directly must now go through Open-AppUi,
+  // so a running daemon's portableMode setting is honoured everywhere the UI can be opened.
+  const bareOpens = tray.match(/(?<!Open-AppUi \$?)Start-Process \$script:url/g);
+  must(
+    !bareOpens,
+    `DevWebUI-Tray.ps1 still opens the UI via a bare Start-Process, bypassing Open-AppUi: ${JSON.stringify(bareOpens)}`,
+  );
+});
+
 // ── Windows-only runtime proofs (the tray is Windows-only) ────────────────────────
 
 test.skipIf(!isWin)(

@@ -6,6 +6,35 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Brand tray/taskbar icon regenerated** from the current stacked-servers vector (the shipped
+  `misc/DevWebUI.ico` had drifted to a generic placeholder). A new `misc/Make-Icon.ps1` rebuilds
+  it from the committed `misc/DevWebUI-icon.png` master (re-rendered from `web/public/icon.svg`),
+  matching the sibling apps' icon-generator convention; the web `favicon.ico` was refreshed too.
+- **Settings split into tabs.** The settings panel now groups its sections under three tabs
+  (General / Servers / Projects) instead of one long scroll, using the shared kit's new
+  segmented tab bar. General holds appearance, app updates, resource monitoring, and cloud
+  sync; Servers holds the start-behavior knobs plus the portable-window / link-host group;
+  Projects holds scanning. Save/Cancel stay visible on every tab and still apply the whole
+  form at once.
+
+### Added
+- **Linked servers.** Two new optional per-process fields in the `.devwebui` schema. `links` names
+  sibling process ids that start together: the relationship is symmetric and transitive, so
+  starting any member of a linked group (GUI single-process start, or MCP `start_process`) starts
+  the whole group. `companion: true` marks a process (a shared database or proxy, say) that starts
+  whenever any other process in the project is started individually. Neither affects autostart,
+  "start project"/"start all", restart, or stop. Both live in the process edit dialog (a linked-
+  servers picker and a Companion toggle), and persist in the `.devwebui` file.
+- **Portable window mode.** A new Settings → Open in browser → "Portable window" toggle opens
+  DevWebUI in its own chromeless Chromium app window (`msedge`/`chrome --app=`, no tabs or
+  address bar) instead of a normal browser tab. Turning it on immediately opens the app window
+  (`POST /api/portable-window`); the desktop launcher/tray follows the same setting on its next
+  Open/double-click/launch, falling back to a normal tab when no Edge or Chrome is installed.
+  The window uses a dedicated Chromium profile (`~/.devwebui/portable-profile`) shared by both
+  open paths, so it remembers its own size and position across launches instead of sharing the
+  main browser profile.
+
 ## [0.2.0] - 2026-07-09
 
 Release-readiness audit: makes a public `bun install` (no private LunarWerx registry access)

@@ -30,8 +30,8 @@
 // `guardSync` in connections-routes.ts like any other sync failure — never a boot crash.
 // ---------------------------------------------------------------------------
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { dataDir } from "./data-dir";
 import type { ConnectClient, ConnectStore, TokenSet } from "@cnct/connect";
 import type { LockerClient } from "@cnct/locker";
 import { readSettings, writeSettings, type Settings } from "./runtime";
@@ -55,7 +55,7 @@ const PREF_KEYS = [
 ] as const satisfies readonly (keyof Settings)[];
 
 // ── persisted state (~/.devwebui/connections.json, 0600) ─────────────────────────
-const STATE_FILE = path.join(os.homedir(), ".devwebui", "connections.json");
+const stateFile = (): string => path.join(dataDir(), "connections.json");
 
 interface ConnState {
   /** LEGACY (pre-SDK) credential slot — migrated into `sdk` on first boot, then removed. */
@@ -74,11 +74,12 @@ let state: ConnState = {};
 let loaded = false;
 
 function persist(): void {
-  mkdirSync(path.dirname(STATE_FILE), { recursive: true });
-  const tmp = `${STATE_FILE}.${process.pid}.${Date.now()}.tmp`;
+  mkdirSync(dataDir(), { recursive: true });
+  const file = stateFile();
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   try {
     writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
-    renameSync(tmp, STATE_FILE);
+    renameSync(tmp, file);
   } catch (e) {
     try {
       rmSync(tmp, { force: true });
@@ -146,7 +147,7 @@ export function initConnections(): void {
   if (loaded) return;
   loaded = true;
   try {
-    if (existsSync(STATE_FILE)) state = JSON.parse(readFileSync(STATE_FILE, "utf8")) as ConnState;
+    if (existsSync(stateFile())) state = JSON.parse(readFileSync(stateFile(), "utf8")) as ConnState;
   } catch {
     state = {};
   }

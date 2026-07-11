@@ -27,27 +27,51 @@ export function createInstancePointer({ configDir, serviceName, host = "127.0.0.
     return runtimeFile;
   }
 
-  /** Record the port the daemon actually bound, so launchers can find this instance. */
-  function writeInstanceInfo(port) {
+  function persist(info) {
+    mkdirSync(dirname(runtimeFile), { recursive: true });
+    // 0600: it carries just the daemon's port + pid (no secrets). writeFileSync's
+    // mode only applies on create; chmod forces it if the file already existed
+    // (no-op on Windows, where the inherited dir ACL already restricts it).
+    writeFileSync(runtimeFile, JSON.stringify(info, null, 2), { mode: 0o600 });
     try {
-      const info = {
+      chmodSync(runtimeFile, 0o600);
+    } catch {
+      /* windows / already-correct, ignore */
+    }
+  }
+
+  /**
+   * Record the port the daemon actually bound, so launchers can find this instance.
+   * `extra` lets an app publish launcher-facing flags alongside the core fields
+   * (e.g. `portableMode`, which the tray scripts read to pick app-window vs. tab);
+   * core fields always win on a key collision.
+   */
+  function writeInstanceInfo(port, extra = {}) {
+    try {
+      persist({
+        ...extra,
         port,
         url: `http://${host}:${port}`,
         pid: process.pid,
         startedAt: Date.now(),
-      };
-      mkdirSync(dirname(runtimeFile), { recursive: true });
-      // 0600: it carries just the daemon's port + pid (no secrets). writeFileSync's
-      // mode only applies on create; chmod forces it if the file already existed
-      // (no-op on Windows, where the inherited dir ACL already restricts it).
-      writeFileSync(runtimeFile, JSON.stringify(info, null, 2), { mode: 0o600 });
-      try {
-        chmodSync(runtimeFile, 0o600);
-      } catch {
-        /* windows / already-correct, ignore */
-      }
+      });
     } catch {
       /* best-effort, the launcher falls back to the default port */
+    }
+  }
+
+  /**
+   * Merge `fields` into the existing pointer (e.g. a settings toggle flipping
+   * `portableMode` mid-run). No-op when no pointer exists: only a running daemon
+   * owns the file, and its boot write is the one that creates it.
+   */
+  function updateInstanceInfo(fields) {
+    try {
+      const info = readInstanceInfo();
+      if (!info) return;
+      persist({ ...info, ...fields });
+    } catch {
+      /* best-effort */
     }
   }
 
@@ -89,5 +113,12 @@ export function createInstancePointer({ configDir, serviceName, host = "127.0.0.
     }
   }
 
-  return { instanceFilePath, writeInstanceInfo, readInstanceInfo, clearInstanceInfo, findLiveInstance };
+  return {
+    instanceFilePath,
+    writeInstanceInfo,
+    updateInstanceInfo,
+    readInstanceInfo,
+    clearInstanceInfo,
+    findLiveInstance,
+  };
 }

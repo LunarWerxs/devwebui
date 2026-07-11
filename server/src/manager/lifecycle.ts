@@ -14,6 +14,7 @@ import {
   WAIT_FOR_PORT_TIMEOUT_MS,
   type Entry,
 } from "./types";
+import { coStartIds, linkedGroupIds } from "./links";
 import { DependencyCycleError, orderByDependency, resolveWaitPort } from "./wait-for-port";
 
 /**
@@ -83,7 +84,59 @@ export class ManagerWithLifecycle extends ManagerWithMonitoring {
     return lastCrash;
   }
 
-  /** All currently-registered process defs, keyed by global id — used to resolve `waitForPort`. */
+  /**
+   * Start a process the way the GUI/MCP "start" action does: the process itself,
+   * plus its linked group and the project's companion processes (see links.ts for
+   * the semantics). The anchor starts immediately — preserving `start()`'s
+   * last-crash return for the caller — while the rest go through the ordinary
+   * staggered, dependency-ordered batch queue. Already-running members are
+   * no-ops, so this is safely idempotent ("bring this group up").
+   */
+  startWithLinks(id: string): LastCrash | null {
+    const e = this.entries.get(id);
+    if (!e) return null;
+    let extras = coStartIds(e.def, [...this.defsById().values()]);
+    const lastCrash = this.start(id);
+    // startMany() is all-or-nothing on a waitForPort cycle — correct for an
+    // explicit batch, but here an unrelated cycle (say, between two companions)
+    // would silently block the anchor's real linked group. Strip cycle members
+    // (logging against them, same as startMany would) and still start the rest.
+    for (;;) {
+      try {
+        orderByDependency(extras, this.defsById());
+        break;
+      } catch (err) {
+        if (!(err instanceof DependencyCycleError)) throw err;
+        for (const cid of err.cycle) {
+          const ce = this.entries.get(cid);
+          if (ce) this.addLog(ce, "stderr", `[devwebui] ${err.message}; not starting.`);
+        }
+        const cycle = new Set(err.cycle);
+        extras = extras.filter((x) => !cycle.has(x));
+      }
+    }
+    if (extras.length) this.startMany(extras);
+    return lastCrash;
+  }
+
+  /**
+   * Stop a process the way the GUI/MCP "stop" action does: the process itself
+   * plus its linked group — a linked group acts as one unit, so stopping any
+   * member brings the whole group down. Companions are NOT included: they join
+   * starts only (a shared database shouldn't die because one consumer stopped).
+   */
+  stopWithLinks(id: string): Promise<void> {
+    const e = this.entries.get(id);
+    if (!e) return Promise.resolve();
+    const group = linkedGroupIds(e.def, [...this.defsById().values()]);
+    return Promise.all([id, ...group].map((pid) => this.stop(pid))).then(() => undefined);
+  }
+
+  /**
+   * All currently-registered process defs, keyed by global id (used to resolve `waitForPort`).
+   * Note: `.values()`/`.keys()`/`.entries()` on the returned Map are one-shot iterators.
+   * Materialize (`[...]`) before handing one to anything that may walk it twice (see coStartIds).
+   */
   private defsById(): Map<string, ProcessDef> {
     const map = new Map<string, ProcessDef>();
     for (const e of this.entries.values()) map.set(e.def.id, e.def);

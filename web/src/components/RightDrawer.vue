@@ -3,13 +3,12 @@
 // exactly like Settings: docks to the edge and shifts page content (no overlay);
 // bottom sheet on mobile. `title` is the accessible name; the visible header lives
 // in the #header slot.
-import type { HTMLAttributes } from "vue";
 import { ref, watch } from "vue";
 import { useMediaQuery } from "@vueuse/core";
 import Sidebar from "@/shell/Sidebar.vue";
 
 const open = defineModel<boolean>("open", { required: true });
-defineProps<{ title: string; contentClass?: HTMLAttributes["class"] }>();
+defineProps<{ title: string }>();
 
 // Lock the side at open time so a mid-open resize can't break the slide (matches
 // the shell's usePushPanel, so the panel and the content push agree).
@@ -25,7 +24,6 @@ watch(open, (o) => {
     :open="open"
     :side="side"
     :title="title"
-    :class="contentClass"
     body-class="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4"
     @update:open="open = $event"
   >

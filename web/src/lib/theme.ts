@@ -10,10 +10,13 @@ import { useStorage, usePreferredDark } from "@vueuse/core";
  *    default, the lone outlier);
  *  - toggles `.dark` on <html>, mirrors the raw mode to `html[data-theme]`, and sets
  *    `html.style.colorScheme` so native form controls / scrollbars match;
- *  - a brief crossfade on change, adds `html.theme-transitioning` (styled in base.css,
- *    280 ms) around the swap, then strips it (ex-RepoYeti). An `activeScopes` ref-count
- *    clears any pending transition once the last consumer unmounts, so no timer/class leaks
- *    across a full teardown (reduced-motion is neutralised by base.css, not here);
+ *  - a brief crossfade on change, via the View Transitions API where available (one
+ *    GPU-composited snapshot fade — cheap even on huge DOMs); otherwise falls back to
+ *    adding `html.theme-transitioning` (styled in base.css, 280 ms) around the swap,
+ *    then stripping it (ex-RepoYeti). An `activeScopes` ref-count clears any pending
+ *    fallback transition once the last consumer unmounts, so no timer/class leaks
+ *    across a full teardown (reduced-motion skips the view transition in code and
+ *    neutralises the fallback in base.css);
  *  - syncs the mobile browser-chrome `<meta name="theme-color">` when present (ex-Reimagine).
  *    Each app declares its OWN chrome colours via `data-theme-color-dark` / `-light` on that
  *    meta tag (defaults #0a0a0a / #ffffff); apps without the meta simply opt out for free.
@@ -55,6 +58,19 @@ function apply(dark: boolean, current: ThemeMode) {
 
 function withCrossfade(fn: () => void) {
   const html = document.documentElement;
+  // Prefer the View Transitions API: the browser crossfades ONE pair of GPU
+  // snapshots instead of transitioning colors on every element (the class
+  // fallback below repaints the whole tree each frame for 280 ms, which gets
+  // visibly laggy on large DOMs). Reduced-motion users get an instant swap:
+  // the fallback's transitions are already neutralised in base.css.
+  const vt = (
+    document as Document & { startViewTransition?: (cb: () => void) => unknown }
+  ).startViewTransition;
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+  if (typeof vt === "function" && !reducedMotion) {
+    vt.call(document, fn);
+    return;
+  }
   html.classList.add("theme-transitioning");
   fn();
   clearTimeout(transitionTimer);

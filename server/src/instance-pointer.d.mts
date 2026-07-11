@@ -3,6 +3,8 @@ export interface InstanceInfo {
   url: string;
   pid: number;
   startedAt: number;
+  /** App-published launcher-facing extras (e.g. portableMode). */
+  [key: string]: unknown;
 }
 
 export interface InstancePointerOptions {
@@ -16,7 +18,9 @@ export interface InstancePointerOptions {
 
 export interface InstancePointer {
   instanceFilePath(): string;
-  writeInstanceInfo(port: number): void;
+  writeInstanceInfo(port: number, extra?: Record<string, unknown>): void;
+  /** Merge fields into an existing pointer (no-op when none exists). */
+  updateInstanceInfo(fields: Record<string, unknown>): void;
   readInstanceInfo(): InstanceInfo | null;
   clearInstanceInfo(): void;
   findLiveInstance(timeoutMs?: number): Promise<InstanceInfo | null>;

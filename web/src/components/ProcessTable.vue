@@ -9,6 +9,8 @@ import {
   Cpu,
   EllipsisVertical,
   ExternalLink,
+  Link2,
+  Magnet,
   MemoryStick,
   Pencil,
   Play,
@@ -39,19 +41,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import Hint from "./Hint.vue";
 import IconButton from "./IconButton.vue";
 import { disableProcess, enableProcess, restart, start, stop } from "@/api";
 import { useAppStore } from "@/store";
 import { useFreePortAction } from "@/lib/freePort";
 import { useLastCrashHint } from "@/lib/lastCrash";
 import { useRunAction } from "@/lib/useAction";
-import { formatBytes, formatUptime, processUrl } from "@/lib/format";
+import { useTooltipConfig } from "@/lib/tooltip-config";
+import { commandEngine, formatBytes, formatUptime, processUrl } from "@/lib/format";
+import { linkedPeers } from "@/lib/links";
 import { statusPill } from "@/lib/severity";
 import type { ProcessView, SortKey } from "@/types";
 
 const { t } = useI18n({ useScope: "global" });
 const freePortAction = useFreePortAction();
 const showLastCrashHint = useLastCrashHint();
+const { enabled: tooltipsEnabled } = useTooltipConfig();
 
 const props = defineProps<{ processes: ProcessView[] }>();
 const emit = defineEmits<{
@@ -88,6 +94,21 @@ const liveUrls = computed<Record<string, string>>(() => {
 const sortIcon = (key: SortKey) =>
   sortKey.value !== key ? ChevronsUpDown : sortDir.value === "asc" ? ArrowUp : ArrowDown;
 
+/** Linked-group names per process id (links are symmetric — either direction counts). */
+const linkedNamesById = computed<Record<string, string>>(() => {
+  const out: Record<string, string> = {};
+  const projectId = props.processes[0]?.projectId;
+  if (!projectId) return out;
+  // Resolve peers against the FULL project list, not props.processes — the rows
+  // are status-filtered, and a hidden peer still starts with its group.
+  const siblings = store.projects.find((p) => p.id === projectId)?.processes ?? [];
+  for (const p of props.processes) {
+    const peers = linkedPeers(p, siblings);
+    if (peers.length) out[p.id] = peers.map((x) => x.name).join(", ");
+  }
+  return out;
+});
+
 const runAction = useRunAction("processTable.actionFailed");
 
 /** Start, then surface the Time-Travel Log Vault hint if the LAST run crashed. */
@@ -104,7 +125,8 @@ function onStart(p: ProcessView) {
     <Table>
       <TableHeader>
         <TableRow class="bg-muted/40 hover:bg-muted/40">
-          <TableHead class="w-[26%]">
+          <!-- Process soaks up the table's spare width; every other column is content-sized (w-px). -->
+          <TableHead class="w-full">
             <Button
               variant="ghost"
               size="sm"
@@ -116,7 +138,7 @@ function onStart(p: ProcessView) {
               <component :is="sortIcon('name')" class="size-3" :class="sortKey === 'name' ? '' : 'opacity-40'" />
             </Button>
           </TableHead>
-          <TableHead class="hidden w-full md:table-cell">{{ t("processTable.colCommand") }}</TableHead>
+          <TableHead class="hidden w-px md:table-cell">{{ t("processTable.colEngine") }}</TableHead>
           <TableHead class="w-px">
             <Button
               variant="ghost"
@@ -194,12 +216,22 @@ function onStart(p: ProcessView) {
                 class="size-3 shrink-0 fill-warning text-warning"
                 :aria-label="t('processTable.unstar')"
               />
+              <Hint v-if="linkedNamesById[p.id]" :label="t('processTable.linkedWith', { names: linkedNamesById[p.id] })">
+                <span class="inline-flex shrink-0" tabindex="0">
+                  <Link2 class="size-3 text-muted-foreground/70" aria-hidden="true" />
+                </span>
+              </Hint>
+              <Hint v-if="p.companion" :label="t('processTable.companionBadge')">
+                <span class="inline-flex shrink-0" tabindex="0">
+                  <Magnet class="size-3 text-muted-foreground/70" aria-hidden="true" />
+                </span>
+              </Hint>
               <a
                 v-if="liveUrls[p.id]"
                 :href="liveUrls[p.id]"
                 target="_blank"
                 rel="noopener noreferrer"
-                :title="t('processTable.openUrl', { url: liveUrls[p.id] })"
+                :title="tooltipsEnabled ? t('processTable.openUrl', { url: liveUrls[p.id] }) : undefined"
                 class="group inline-flex min-w-0 items-center gap-1 rounded font-medium underline-offset-4 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span class="truncate">{{ p.name }}</span>
@@ -212,30 +244,41 @@ function onStart(p: ProcessView) {
             </div>
           </TableCell>
 
-          <!-- Command -->
-          <TableCell class="hidden max-w-0 whitespace-normal md:table-cell">
-            <code class="line-clamp-1 break-all text-xs text-muted-foreground" :title="p.command">{{ p.command }}</code>
+          <!-- Command, condensed to its engine (the launching executable); hover the chip for the full command. -->
+          <TableCell class="hidden md:table-cell">
+            <Hint>
+              <Badge variant="outline" class="font-mono text-[11px] font-normal text-muted-foreground">
+                {{ commandEngine(p.command) }}
+              </Badge>
+              <template #label>
+                <code class="break-all">{{ p.command }}</code>
+              </template>
+            </Hint>
           </TableCell>
 
           <!-- Status (+ error count) -->
           <TableCell>
             <div class="flex items-center gap-1.5">
-              <Badge
-                variant="outline"
-                class="capitalize"
-                :class="statusPill(p.status).badge"
-                :title="p.status === 'waiting' && p.waitingOnPort ? t('processTable.waitingForPort', { port: p.waitingOnPort }) : undefined"
+              <Hint
+                v-if="p.status === 'waiting' && p.waitingOnPort"
+                :label="t('processTable.waitingForPort', { port: p.waitingOnPort })"
               >
+                <Badge variant="outline" class="capitalize" :class="statusPill(p.status).badge">
+                  {{ statusPill(p.status).label }}
+                </Badge>
+              </Hint>
+              <Badge v-else variant="outline" class="capitalize" :class="statusPill(p.status).badge">
                 {{ statusPill(p.status).label }}
               </Badge>
-              <button
-                v-if="errorCountByProcess[p.id]"
-                :aria-label="t('processTable.errorCountAriaLabel', errorCountByProcess[p.id])"
-                class="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs font-semibold text-destructive outline-none transition-colors hover:bg-destructive/20 focus-visible:ring-2 focus-visible:ring-destructive/40 active:bg-destructive/30"
-                @click="emit('errors', p)"
-              >
-                <TriangleAlert class="size-3" aria-hidden="true" /> {{ errorCountByProcess[p.id] }}
-              </button>
+              <Hint v-if="errorCountByProcess[p.id]" :label="t('processTable.errorCountAriaLabel', errorCountByProcess[p.id])">
+                <button
+                  :aria-label="t('processTable.errorCountAriaLabel', errorCountByProcess[p.id])"
+                  class="inline-flex cursor-pointer items-center gap-1 rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs font-semibold text-destructive outline-none transition-colors hover:bg-destructive/20 focus-visible:ring-2 focus-visible:ring-destructive/40 active:bg-destructive/30"
+                  @click="emit('errors', p)"
+                >
+                  <TriangleAlert class="size-3" aria-hidden="true" /> {{ errorCountByProcess[p.id] }}
+                </button>
+              </Hint>
             </div>
           </TableCell>
 
@@ -243,15 +286,15 @@ function onStart(p: ProcessView) {
           <TableCell class="text-right tabular-nums">
             <span v-if="p.port == null" class="text-muted-foreground">—</span>
             <span v-else class="inline-flex items-center justify-end gap-1">
-              <button
-                v-if="p.conflict"
-                class="rounded text-warning outline-none transition-colors hover:text-warning/80 focus-visible:ring-2 focus-visible:ring-warning/40"
-                :aria-label="t('processTable.freePortAriaLabel', { port: p.port })"
-                :title="t('processTable.freePortAriaLabel', { port: p.port })"
-                @click="freePortAction(p)"
-              >
-                <TriangleAlert class="size-3.5" />
-              </button>
+              <Hint v-if="p.conflict" :label="t('processTable.freePortAriaLabel', { port: p.port })">
+                <button
+                  class="cursor-pointer rounded text-warning outline-none transition-colors hover:text-warning/80 focus-visible:ring-2 focus-visible:ring-warning/40"
+                  :aria-label="t('processTable.freePortAriaLabel', { port: p.port })"
+                  @click="freePortAction(p)"
+                >
+                  <TriangleAlert class="size-3.5" />
+                </button>
+              </Hint>
               <span :class="p.conflict ? 'text-warning' : ''">{{ p.port }}</span>
             </span>
           </TableCell>
