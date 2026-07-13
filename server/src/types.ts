@@ -31,6 +31,8 @@ export interface ProcessDef {
 export interface LoadedProject {
   id: string;
   name: string;
+  /** Optional accent color (CSS color string) from the file's top-level `color`. */
+  color?: string;
   path: string;
   dir: string;
   processes: ProcessDef[];

@@ -1,4 +1,4 @@
-import type { ErrorEvent, LogLine, ProcessInput, ProjectView } from "./types";
+import type { ErrorEvent, LogLine, ProcessInput, ProjectMetaInput, ProjectView } from "./types";
 import { ROUTES } from "../../shared/routes";
 import { httpFetch, httpJson } from "@/lib/httpClient";
 export { ApiError } from "@/lib/httpClient";
@@ -145,6 +145,10 @@ export const setAutoUpdate = (enabled: boolean, intervalSecs?: number) =>
 
 // ---- project add/load/clone/scaffold/remove (raw — the store calls refresh after) ----
 export const removeProjectRequest = (id: string) => post(ROUTES.projectAction.build(id, "remove"));
+
+/** Rename + recolor a project (rewrites the .devwebui file's top-level name/color). */
+export const updateProjectRequest = (id: string, meta: ProjectMetaInput) =>
+  reqJson<AddResult>(ROUTES.projectUpdate.build(id), jsonInit("PUT", meta));
 
 export const browseProjectRequest = () =>
   reqJson<AddResult>(ROUTES.projectsBrowse, { method: "POST" });

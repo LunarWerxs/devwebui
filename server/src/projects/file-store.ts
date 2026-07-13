@@ -61,7 +61,7 @@ export function readDevWebUIFile(filePath: string): LoadedProject {
     };
   });
 
-  return { id, name: parsed.name, path: abs, dir, processes };
+  return { id, name: parsed.name, color: parsed.color, path: abs, dir, processes };
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ export function readDevWebUIFile(filePath: string): LoadedProject {
 // Every write is validated against the schema first, so the file is never left
 // invalid. `localId` is the process `id` as written in the file.
 // ---------------------------------------------------------------------------
-function readRaw(filePath: string): { name: string; processes: DevWebUIProcess[] } {
+function readRaw(filePath: string): { name: string; color?: string; processes: DevWebUIProcess[] } {
   const abs = path.resolve(filePath);
   return DevWebUIFileSchema.parse(JSON.parse(readFileSync(abs, "utf8")));
 }
@@ -149,6 +149,27 @@ export function setProcessStarred(filePath: string, localId: string, starred: bo
   const i = raw.processes.findIndex((p) => p.id === localId);
   if (i < 0) throw new Error(`Process "${localId}" not found.`);
   raw.processes[i] = clean({ ...raw.processes[i], starred });
+  writeRaw(filePath, raw);
+}
+
+/**
+ * Update a project's top-level metadata (rename + recolor) in place, leaving its
+ * processes untouched. A provided-but-empty `name` is rejected (the schema needs a
+ * non-empty name); an empty/omitted `color` clears the key so the file stays tidy
+ * and the GUI falls back to the theme accent.
+ */
+export function updateProjectMeta(filePath: string, meta: { name?: string; color?: string }): void {
+  const raw = readRaw(filePath);
+  if (meta.name !== undefined) {
+    const name = meta.name.trim();
+    if (!name) throw new Error("A project name can't be empty.");
+    raw.name = name;
+  }
+  if (meta.color !== undefined) {
+    const color = meta.color.trim();
+    if (color) raw.color = color;
+    else delete raw.color;
+  }
   writeRaw(filePath, raw);
 }
 

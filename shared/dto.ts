@@ -59,10 +59,19 @@ export interface ProcessView {
 export interface ProjectView {
   id: string;
   name: string;
+  /** Optional accent color (CSS color string) tinting the project's stack icon; unset = theme primary. */
+  color?: string;
   path: string; // absolute path of the .devwebui file
   /** Project master switch (gates the whole stack's autostart); defaults on. */
   enabled: boolean;
   processes: ProcessView[];
+}
+
+/** Editable project-level metadata sent to the daemon (rename + recolor). */
+export interface ProjectMetaInput {
+  name: string;
+  /** CSS color string; omit or send empty to clear back to the theme default. */
+  color?: string;
 }
 
 /** One line of process output, streamed over SSE and returned by the logs API. */

@@ -37,6 +37,8 @@ export interface Entry {
 export interface Project {
   id: string;
   name: string;
+  /** Optional accent color (CSS color string); mirrors the .devwebui file's top-level `color`. */
+  color?: string;
   path: string;
   processIds: string[];
 }

@@ -7,6 +7,7 @@ import {
   removeProcessFromFile,
   setProcessStarred,
   updateProcessInFile,
+  updateProjectMeta,
 } from "../projects";
 import type { ProjectView } from "../types";
 import { ROUTES } from "../../../shared/routes";
@@ -31,6 +32,21 @@ export function registerProcessRoutes(app: Hono, manager: Manager) {
     const filePath = manager.getProjectPath(id);
     return filePath ?? fail(c, "unknown project", 404);
   }
+
+  // ---- project meta editing (rename + recolor — rewrites the file, then reconciles) ----
+  app.put(ROUTES.projectUpdate.pattern, async (c) => {
+    const id = c.req.param("id");
+    const filePath = requireProjectPath(c, id);
+    if (filePath instanceof Response) return filePath;
+    const body = await readBody(c);
+    return guard(c, () => {
+      updateProjectMeta(filePath, {
+        name: typeof body?.name === "string" ? body.name : undefined,
+        color: typeof body?.color === "string" ? body.color : undefined,
+      });
+      return c.json({ ok: true, project: reloadProject(id) });
+    });
+  });
 
   // ---- process editing (rewrites the .devwebui file, then reconciles) ----
   app.post(ROUTES.projectProcesses.pattern, async (c) => {

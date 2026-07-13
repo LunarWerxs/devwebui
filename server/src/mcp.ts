@@ -43,6 +43,82 @@ const S = (properties: Record<string, unknown> = {}, required: string[] = []) =>
 const JSON_HEADERS = { "content-type": "application/json" };
 const str = (v: unknown): string => String(v ?? "");
 
+// Shared JSON-Schema fragment for a process's editable config (add_process / update_process).
+// Mirrors the ProcessInput DTO — `env` is intentionally omitted (schema-only; the GUI doesn't
+// edit it either, and update_process preserves an entry's existing env when the body omits it).
+const PROCESS_FIELDS: Record<string, unknown> = {
+  id: {
+    type: "string",
+    description: "Process id — unique within the project; letters, numbers, . _ -",
+  },
+  name: { type: "string", description: "Display name shown on the process's card." },
+  command: {
+    type: "string",
+    description: "Shell command that starts the server, e.g. 'bun run dev'.",
+  },
+  cwd: {
+    type: "string",
+    description: "Working directory, relative to the .devwebui file (optional).",
+  },
+  color: {
+    type: "string",
+    description: "Accent color as a hex string, e.g. '#22c55e' (optional).",
+  },
+  port: {
+    type: "number",
+    description: "Port the server listens on — enables conflict detection + free_port (optional).",
+  },
+  url: {
+    type: "string",
+    description:
+      "Click-through target: an http(s):// URL, or a /path appended to the host (optional).",
+  },
+  autostart: { type: "boolean", description: "Launch when DevWebUI starts (optional)." },
+  starred: {
+    type: "boolean",
+    description: "Float this process to the top of every list (optional).",
+  },
+  runtime: {
+    type: "string",
+    enum: ["node", "bun"],
+    description: "Runtime to launch under; omit for the global default (optional).",
+  },
+  waitForPort: {
+    type: ["number", "string"],
+    description:
+      "Wait for this port (number) or sibling process id (string) to be listening before starting (optional).",
+  },
+  links: {
+    type: "array",
+    items: { type: "string" },
+    description:
+      "Sibling process ids that start/stop as one linked group with this one (optional).",
+  },
+  companion: {
+    type: "boolean",
+    description:
+      "Start whenever any other process in the project is started individually (optional).",
+  },
+};
+
+// Pick just the process-config keys out of a tool's args → the ProcessInput body the daemon
+// expects. JSON.stringify drops the `undefined` keys, so only the provided fields are sent.
+const procBody = (a: Record<string, unknown>) => ({
+  id: a.id,
+  name: a.name,
+  command: a.command,
+  cwd: a.cwd,
+  color: a.color,
+  port: a.port,
+  url: a.url,
+  autostart: a.autostart,
+  starred: a.starred,
+  runtime: a.runtime,
+  waitForPort: a.waitForPort,
+  links: a.links,
+  companion: a.companion,
+});
+
 const TOOLS: McpEngineTool[] = [
   {
     name: "list_projects",
@@ -63,10 +139,101 @@ const TOOLS: McpEngineTool[] = [
       }),
   },
   {
+    name: "update_project",
+    description:
+      "Rename and/or recolor a project (rewrites its .devwebui file). Omit `name` to keep the current name; pass `color` as a hex like '#22c55e', or an empty string to clear it back to the theme default. Leaves the project's processes and their running state untouched.",
+    inputSchema: S(
+      {
+        id: { type: "string" },
+        name: {
+          type: "string",
+          description: "New project name (optional; omit to keep the current one).",
+        },
+        color: {
+          type: "string",
+          description: "New accent color hex, or '' to clear back to default (optional).",
+        },
+      },
+      ["id"],
+    ),
+    run: (a) =>
+      api(ROUTES.projectUpdate.build(str(a.id)), {
+        method: "PUT",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ name: a.name, color: a.color }),
+      }),
+  },
+  {
+    name: "clone_project",
+    description:
+      "Clone a git repo into `dest`, then load it (or report that it needs scaffolding). Both are absolute paths on this machine.",
+    inputSchema: S({ url: { type: "string" }, dest: { type: "string" } }, ["url", "dest"]),
+    run: (a) =>
+      api(ROUTES.projectsClone, {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ url: a.url, dest: a.dest }),
+      }),
+  },
+  {
+    name: "scan_projects",
+    description:
+      "Sweep the machine for existing .devwebui files (and, with detectPackages, folders whose dev scripts could become one). Returns found files + detected folders; loads nothing. `preset`: startup | quick | deep | scoped.",
+    inputSchema: S({
+      roots: {
+        type: "array",
+        items: { type: "string" },
+        description: "Absolute dirs to scan (optional; defaults to sensible roots).",
+      },
+      preset: {
+        type: "string",
+        enum: ["startup", "quick", "deep", "scoped"],
+        description: "Server-owned scan profile (optional).",
+      },
+      detectPackages: {
+        type: "boolean",
+        description: "Also detect package.json dev scripts as candidate projects (optional).",
+      },
+      maxDepth: {
+        type: "number",
+        description: "Override the preset's directory depth (optional).",
+      },
+      limit: { type: "number", description: "Max results before truncating (optional)." },
+      budgetMs: { type: "number", description: "Time budget in milliseconds (optional)." },
+    }),
+    run: (a) =>
+      api(ROUTES.projectsScan, {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({
+          roots: a.roots,
+          preset: a.preset,
+          detectPackages: a.detectPackages,
+          maxDepth: a.maxDepth,
+          limit: a.limit,
+          budgetMs: a.budgetMs,
+        }),
+      }),
+  },
+  {
     name: "remove_project",
     description: "Unload a project by id (stops its processes and forgets it).",
     inputSchema: S({ id: { type: "string" } }, ["id"]),
     run: (a) => api(ROUTES.projectAction.build(str(a.id), "remove"), { method: "POST" }),
+  },
+  {
+    name: "start_project",
+    description:
+      "Start every process in a project now (transient — does NOT change each process's saved on/off preference; use enable_project to also flip it on).",
+    inputSchema: S({ id: { type: "string" } }, ["id"]),
+    run: (a) => api(ROUTES.projectAction.build(str(a.id), "start"), { method: "POST" }),
+  },
+  {
+    name: "stop_project",
+    description:
+      "Stop every process in a project now (transient — does NOT change each process's saved on/off preference; use disable_project to also flip it off).",
+    inputSchema: S({ id: { type: "string" } }, ["id"]),
+    run: (a) => api(ROUTES.projectAction.build(str(a.id), "stop"), { method: "POST" }),
   },
   {
     name: "list_processes",
@@ -74,6 +241,79 @@ const TOOLS: McpEngineTool[] = [
       "List every managed dev-server process with its live status, pid, uptime, CPU and memory.",
     inputSchema: S(),
     run: () => api(ROUTES.processes),
+  },
+  {
+    name: "add_process",
+    description:
+      "Add a new process to a project's .devwebui file. Requires the project id plus the process id, name and command; every other field is optional. The daemon reloads the project so the new process appears immediately.",
+    inputSchema: S(
+      {
+        projectId: {
+          type: "string",
+          description: "The project (codebase) id to add the process into.",
+        },
+        ...PROCESS_FIELDS,
+      },
+      ["projectId", "id", "name", "command"],
+    ),
+    run: (a) =>
+      api(ROUTES.projectProcesses.build(str(a.projectId)), {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify(procBody(a)),
+      }),
+  },
+  {
+    name: "update_process",
+    description:
+      "Replace a process's entire config in a project's .devwebui file. `localId` identifies the existing entry; send its FULL definition (id, name, command + any options), not just the changed field. Renaming the id follows every sibling link. Unchanged running processes keep running.",
+    inputSchema: S(
+      {
+        projectId: { type: "string", description: "The project (codebase) id." },
+        localId: {
+          type: "string",
+          description: "The process's CURRENT in-file id (the entry being edited).",
+        },
+        ...PROCESS_FIELDS,
+      },
+      ["projectId", "localId", "id", "name", "command"],
+    ),
+    run: (a) =>
+      api(ROUTES.projectProcess.build(str(a.projectId), str(a.localId)), {
+        method: "PUT",
+        headers: JSON_HEADERS,
+        body: JSON.stringify(procBody(a)),
+      }),
+  },
+  {
+    name: "remove_process",
+    description:
+      "Delete a process from a project's .devwebui file by its in-file id. A project must keep at least one process (remove the whole project instead). Prunes the removed id from every sibling's links.",
+    inputSchema: S({ projectId: { type: "string" }, localId: { type: "string" } }, [
+      "projectId",
+      "localId",
+    ]),
+    run: (a) =>
+      api(ROUTES.projectProcess.build(str(a.projectId), str(a.localId)), { method: "DELETE" }),
+  },
+  {
+    name: "set_process_starred",
+    description:
+      "Star or unstar a process (starred processes float to the top of every list). `starred: true` to star, `false` to unstar.",
+    inputSchema: S(
+      {
+        projectId: { type: "string" },
+        localId: { type: "string" },
+        starred: { type: "boolean" },
+      },
+      ["projectId", "localId", "starred"],
+    ),
+    run: (a) =>
+      api(ROUTES.projectProcessStar.build(str(a.projectId), str(a.localId)), {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ starred: !!a.starred }),
+      }),
   },
   {
     name: "start_process",
@@ -120,6 +360,38 @@ const TOOLS: McpEngineTool[] = [
         data.lines = data.lines.slice(-a.limit);
       return data;
     },
+  },
+  {
+    name: "get_log_file",
+    description:
+      "Tail a process's on-disk rotating log file (Time-Travel Log Vault) — survives daemon restarts and the in-memory line cap, unlike get_logs. Returns the last `lines` lines (default 200).",
+    inputSchema: S({ id: { type: "string" }, lines: { type: "number" } }, ["id"]),
+    run: (a) =>
+      api(
+        ROUTES.processLogFile.build(str(a.id), typeof a.lines === "number" ? a.lines : undefined),
+      ),
+  },
+  {
+    name: "free_port",
+    description:
+      "Free a process's declared port. A DevWebUI-managed holder is stopped cleanly; EXTERNAL owners are only reported back (needsConfirm + owners) unless you pass confirm:true, which kills those exact PIDs.",
+    inputSchema: S(
+      {
+        id: { type: "string" },
+        confirm: {
+          type: "boolean",
+          description:
+            "Also kill external (unmanaged) processes holding the port (optional; default false).",
+        },
+      },
+      ["id"],
+    ),
+    run: (a) =>
+      api(ROUTES.processFreePort.build(str(a.id)), {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ confirm: !!a.confirm }),
+      }),
   },
   {
     name: "list_errors",

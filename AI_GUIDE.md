@@ -133,18 +133,26 @@ Save the result as `<repo-name>.devwebui` in the repo root. Then in DevWebUI cli
 
 DevWebUI exposes an MCP server — a thin stdio client over the running daemon, so the GUI and
 agents share one state. Register it as shown in the README's
-[MCP section](README.md#drive-it-from-an-ai-agent-mcp), then use the **17 tools**:
+[MCP section](README.md#drive-it-from-an-ai-agent-mcp), then use the **29 tools**:
 
 **Projects**
 
 - `list_projects` — loaded projects (codebases), each with its processes and live status.
 - `load_project` — load a `.devwebui` file by **absolute path** (registers its processes, remembers it).
+- `clone_project` — clone a git repo into a dest path, then load it (or report it needs scaffolding).
+- `scan_projects` — sweep the machine for existing `.devwebui` files (and detectable dev folders); loads nothing.
+- `update_project` — rename and/or recolor a project (rewrites its `.devwebui` file); processes untouched.
 - `remove_project` — unload a project by id (stops its processes and forgets it).
+- `start_project` / `stop_project` — start/stop every process in a project **now** (transient; doesn't change saved on/off).
 - `enable_project` / `disable_project` — turn a whole codebase on/off and start/stop it; persists across daemon restarts.
 
 **Processes**
 
 - `list_processes` — every managed process with live status, pid, uptime, CPU and memory.
+- `add_process` — add a process to a project's `.devwebui` file (id, name, command + optional fields).
+- `update_process` — replace a process's whole config by its in-file id (send the full definition; renames follow links).
+- `remove_process` — delete a process from a project (a project must keep at least one).
+- `set_process_starred` — star/unstar a process (starred float to the top of every list).
 - `start_process` / `stop_process` / `restart_process` — act on one process by id. `start_process`
   also starts any linked siblings (`links`) and any companion processes (`companion: true`) in the
   same project; `stop_process` also stops linked siblings but leaves companions running; restart
@@ -152,14 +160,18 @@ agents share one state. Register it as shown in the README's
   process ids the action set in motion or brought down.
 - `start_all` / `stop_all` — every managed process at once.
 - `enable_process` / `disable_process` — turn one process on/off and start/stop it; persists across restarts.
+- `free_port` — free a process's declared port (stops a managed holder cleanly; `confirm:true` also kills external owners).
 - `take_over_autostart` — retire a repo's external dev-server auto-start (VS Code `tasks.json` `runOn:folderOpen`, the Vite extension's `vite.autoStart`) so DevWebUI is the sole launcher. Backs up each edited file first. Pass the project folder (absolute path).
 
-**Logs & errors**
+**Logs, errors & diagnostics**
 
-- `get_logs` — recent log lines for a process (most recent last).
+- `get_logs` — recent in-memory log lines for a process (most recent last).
+- `get_log_file` — tail a process's on-disk rotating log file (survives daemon restarts and the in-memory cap).
 - `list_errors` — the de-duplicated record of process errors (stderr / crashes / error-looking stdout), most recent first.
 - `clear_errors` — clear the error log (optionally for a single process id).
+- `diagnose_process` — Incident Autopilot: a structured root-cause guess (exit code + error log + port ownership + command) plus a suggested remediation (never auto-executed).
 
-**Common flows:** to onboard a repo, write its `.devwebui` file (above), then `load_project` with
-the absolute path. To diagnose breakage, `list_errors`. To hand a repo fully over to DevWebUI,
-`take_over_autostart` on its folder.
+**Common flows:** to onboard a repo, write its `.devwebui` file (above) then `load_project` with the
+absolute path — or `scan_projects` to find existing ones. Build or reshape a project with
+`add_process` / `update_process` / `update_project`. To diagnose breakage, `list_errors` then
+`diagnose_process`. To hand a repo fully over to DevWebUI, `take_over_autostart` on its folder.

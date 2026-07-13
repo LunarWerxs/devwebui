@@ -8,6 +8,7 @@ export type {
   ProjectView,
   LogLine,
   ProcessInput,
+  ProjectMetaInput,
   ErrorEvent,
   ErrorSource,
 } from "../../shared/dto";

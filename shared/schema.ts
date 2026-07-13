@@ -49,6 +49,9 @@ export const ProcessSchema = z.object({
 
 export const DevWebUIFileSchema = z.object({
   name: z.string().min(1),
+  // Optional project accent color (a CSS color string; the GUI's picker writes `#rrggbb`).
+  // Tints the project's stack icon in the panel header; unset falls back to the theme primary.
+  color: z.string().optional(),
   processes: z.array(ProcessSchema).min(1),
 });
 

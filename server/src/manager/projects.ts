@@ -27,6 +27,7 @@ export class ManagerWithProjects extends ManagerWithLifecycle {
     this.projects.set(p.id, {
       id: p.id,
       name: p.name,
+      color: p.color,
       path: p.path,
       processIds: p.processes.map((x) => x.id),
     });
@@ -75,6 +76,7 @@ export class ManagerWithProjects extends ManagerWithLifecycle {
     this.startMany(newAutostartIds);
 
     existing.name = lp.name;
+    existing.color = lp.color;
     existing.processIds = lp.processes.map((p) => p.id);
     this.emitProjects();
   }

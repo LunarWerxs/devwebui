@@ -99,6 +99,11 @@ export const ROUTES = {
   },
 
   // ---- parameterized: projects ----
+  /** PUT project-level metadata (rename + recolor) — rewrites the .devwebui file's top-level name/color. */
+  projectUpdate: {
+    pattern: "/api/projects/:id",
+    build: (id: string) => `/api/projects/${id}`,
+  },
   /** POST a project lifecycle/toggle action (start|stop|enable|disable|remove). */
   projectAction: {
     pattern: "/api/projects/:id/:action",
@@ -130,6 +135,7 @@ type _AssertParamRoutes = {
   processLogFile: typeof ROUTES.processLogFile extends ParamRoute ? true : never;
   processFreePort: typeof ROUTES.processFreePort extends ParamRoute ? true : never;
   processDiagnose: typeof ROUTES.processDiagnose extends ParamRoute ? true : never;
+  projectUpdate: typeof ROUTES.projectUpdate extends ParamRoute ? true : never;
   projectAction: typeof ROUTES.projectAction extends ParamRoute ? true : never;
   projectProcesses: typeof ROUTES.projectProcesses extends ParamRoute ? true : never;
   projectProcess: typeof ROUTES.projectProcess extends ParamRoute ? true : never;
@@ -141,6 +147,7 @@ const _assert: _AssertParamRoutes = {
   processLogFile: true,
   processFreePort: true,
   processDiagnose: true,
+  projectUpdate: true,
   projectAction: true,
   projectProcesses: true,
   projectProcess: true,

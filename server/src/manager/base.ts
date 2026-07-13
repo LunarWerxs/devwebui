@@ -190,6 +190,7 @@ export abstract class ManagerBase extends EventEmitter {
     return [...this.projects.values()].map((p) => ({
       id: p.id,
       name: p.name,
+      color: p.color,
       path: p.path,
       enabled: this.projectEnabled(p.id),
       processes: p.processIds.map((pid) => this.view(pid)!).filter(Boolean),

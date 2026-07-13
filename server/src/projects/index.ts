@@ -10,6 +10,7 @@ export {
   updateProcessInFile,
   removeProcessFromFile,
   setProcessStarred,
+  updateProjectMeta,
   readRegistry,
   registryAdd,
   registryRemove,

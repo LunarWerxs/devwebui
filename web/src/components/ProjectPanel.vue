@@ -2,7 +2,17 @@
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useLocalStorage } from "@vueuse/core";
-import { Boxes, ChevronDown, EllipsisVertical, Play, Plus, Square, Trash2 } from "@lucide/vue";
+import {
+  Boxes,
+  ChevronDown,
+  EllipsisVertical,
+  Pencil,
+  Play,
+  Plus,
+  Square,
+  Trash2,
+  X,
+} from "@lucide/vue";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +32,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { storeToRefs } from "pinia";
 import ProcessCard from "./ProcessCard.vue";
 import ProcessTable from "./ProcessTable.vue";
@@ -85,6 +98,49 @@ async function doRemove() {
   await runAction(() => store.removeProject(props.project.id));
 }
 
+// ---- Edit project (rename + accent color) ----
+const editDialogOpen = ref(false);
+const editName = ref("");
+const editColor = ref("");
+const editError = ref("");
+const editSaving = ref(false);
+
+function openEditDialog() {
+  editName.value = props.project.name;
+  editColor.value = props.project.color ?? "";
+  editError.value = "";
+  editDialogOpen.value = true;
+}
+
+function onEditColorPick(e: Event) {
+  editColor.value = (e.target as HTMLInputElement).value;
+}
+
+async function saveEdit() {
+  const name = editName.value.trim();
+  if (!name) {
+    editError.value = t("projectPanel.editNameRequired");
+    return;
+  }
+  editSaving.value = true;
+  editError.value = "";
+  try {
+    const res = await store.updateProject(props.project.id, {
+      name,
+      color: editColor.value.trim() || undefined,
+    });
+    if (res?.error) {
+      editError.value = res.error;
+      return;
+    }
+    editDialogOpen.value = false;
+  } catch (e) {
+    editError.value = e instanceof Error ? e.message : t("projectPanel.actionFailed");
+  } finally {
+    editSaving.value = false;
+  }
+}
+
 const runAction = useRunAction("projectPanel.actionFailed");
 </script>
 
@@ -105,7 +161,8 @@ const runAction = useRunAction("projectPanel.actionFailed");
         />
         <Boxes
           class="size-[18px] shrink-0"
-          :class="project.enabled ? 'text-primary' : 'text-muted-foreground'"
+          :class="project.enabled ? (project.color ? '' : 'text-primary') : 'text-muted-foreground'"
+          :style="project.enabled && project.color ? { color: project.color } : undefined"
         />
         <span class="truncate font-semibold" :class="project.enabled ? '' : 'text-muted-foreground'">
           {{ project.name }}
@@ -140,6 +197,9 @@ const runAction = useRunAction("projectPanel.actionFailed");
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" class="w-44">
+            <DropdownMenuItem @select="openEditDialog">
+              <Pencil class="size-4" /> {{ t("projectPanel.editProject") }}
+            </DropdownMenuItem>
             <DropdownMenuItem @select="emit('addProcess', project.id)">
               <Plus class="size-4" /> {{ t("projectPanel.addProcess") }}
             </DropdownMenuItem>
@@ -194,6 +254,68 @@ const runAction = useRunAction("projectPanel.actionFailed");
         <Button variant="ghost" @click="removeDialogOpen = false">{{ t("projectPanel.cancel") }}</Button>
         <Button variant="destructive" @click="doRemove">{{ t("projectPanel.removeProject") }}</Button>
       </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <Dialog v-model:open="editDialogOpen">
+    <DialogContent class="sm:max-w-[440px]" :aria-busy="editSaving">
+      <DialogHeader>
+        <DialogTitle>{{ t("projectPanel.editProjectTitle") }}</DialogTitle>
+        <DialogDescription class="sr-only">{{ t("projectPanel.editProjectDescription") }}</DialogDescription>
+      </DialogHeader>
+
+      <form class="flex flex-col gap-4" @submit.prevent="saveEdit">
+        <Alert v-if="editError" variant="destructive">
+          <AlertDescription>{{ editError }}</AlertDescription>
+        </Alert>
+
+        <div class="flex items-end gap-3">
+          <div class="min-w-0 flex-1">
+            <Label for="pe-name" class="mb-1.5 block text-sm font-normal">{{ t("projectPanel.editNameLabel") }}</Label>
+            <Input
+              id="pe-name"
+              v-model="editName"
+              :placeholder="t('projectPanel.editNamePlaceholder')"
+              :disabled="editSaving"
+            />
+          </div>
+          <div class="shrink-0">
+            <Label class="mb-1.5 block text-sm font-normal">{{ t("projectPanel.editColorLabel") }}</Label>
+            <div class="flex items-center gap-1.5">
+              <label
+                class="relative block size-9 cursor-pointer overflow-hidden rounded-md border border-border"
+                :style="{ backgroundColor: editColor || 'var(--primary)' }"
+                :title="editColor || t('projectPanel.editColorPick')"
+              >
+                <input
+                  type="color"
+                  class="absolute -inset-1 size-[150%] cursor-pointer border-0 bg-transparent p-0"
+                  :value="editColor || '#6366f1'"
+                  :aria-label="t('projectPanel.editColorPick')"
+                  @input="onEditColorPick"
+                />
+              </label>
+              <IconButton
+                v-if="editColor"
+                type="button"
+                variant="ghost"
+                size="icon"
+                :tooltip="t('projectPanel.editColorReset')"
+                @click="editColor = ''"
+              >
+                <X class="size-4 text-muted-foreground" />
+              </IconButton>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="ghost" :disabled="editSaving" @click="editDialogOpen = false">
+            {{ t("projectPanel.cancel") }}
+          </Button>
+          <Button type="submit" :disabled="editSaving">{{ t("projectPanel.save") }}</Button>
+        </DialogFooter>
+      </form>
     </DialogContent>
   </Dialog>
 </template>

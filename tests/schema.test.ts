@@ -63,3 +63,10 @@ test("DevWebUIFileSchema rejects a missing or empty name", () => {
   expect(DevWebUIFileSchema.safeParse({ processes: [base] }).success).toBe(false);
   expect(file({ name: "" }).success).toBe(false);
 });
+
+test("DevWebUIFileSchema accepts an optional top-level color and round-trips it", () => {
+  expect(file().success).toBe(true); // color omitted is valid
+  expect(file({ color: "#ff8800" }).success).toBe(true);
+  const parsed = DevWebUIFileSchema.parse({ name: "App", color: "#ff8800", processes: [base] });
+  expect(parsed.color).toBe("#ff8800");
+});

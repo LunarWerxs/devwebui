@@ -317,6 +317,17 @@ export const useAppStore = defineStore("app", () => {
     await refresh();
   }
 
+  /**
+   * Rename + recolor a project (rewrites its .devwebui file). Returns the raw result so
+   * the caller can surface a validation error; on success the reconcile pushes the updated
+   * project over SSE, and we refresh as a belt-and-suspenders in case that snapshot lags.
+   */
+  async function updateProject(id: string, meta: { name: string; color?: string }) {
+    const res = await api.updateProjectRequest(id, meta);
+    if (!res?.error) await refresh();
+    return res;
+  }
+
   /** Toggle a process's starred flag (SSE pushes the reloaded project back). */
   async function toggleStar(p: ProcessView) {
     await api.setProcessStarred(p.projectId, p.localId, !p.starred);
@@ -549,6 +560,7 @@ export const useAppStore = defineStore("app", () => {
     connect,
     fetchLogs,
     removeProject,
+    updateProject,
     browseForProject,
     loadProjectByPath,
     cloneProject,
