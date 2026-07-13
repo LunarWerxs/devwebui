@@ -6,6 +6,7 @@
 // `waitForPort` declarations is detected and logged instead of deadlocking. Uses
 // real spawned processes (bun -e), following manager.test.ts's idiom.
 // ───────────────────────────────────────────────────────────────────────────────
+import "./isolate"; // CWD-proof data-dir isolation — must load before any server/src import
 import { expect, test } from "bun:test";
 import net from "node:net";
 import { Manager } from "../server/src/manager";

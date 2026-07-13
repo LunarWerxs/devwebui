@@ -67,17 +67,33 @@ function closeOtherPanels(keep: "settings" | "logs" | "notifications") {
 }
 
 function openSettings() {
+  if (settingsOpen.value) {
+    settingsOpen.value = false;
+    return;
+  }
   closeOtherPanels("settings");
   settingsOpen.value = true;
 }
 
 function openLogs(id: string) {
+  // Toggle: the same process's logs button closes its open drawer; a different
+  // process's button just switches the drawer over to it.
+  if (drawerOpen.value && selected.value === id) {
+    drawerOpen.value = false;
+    return;
+  }
   closeOtherPanels("logs");
   selected.value = id;
   drawerOpen.value = true;
 }
 
 function openNotifications() {
+  // Toggle: a second bell click closes the panel — unless it's showing a single
+  // process's errors (openProcessErrors), where the bell means "show me all".
+  if (notificationsOpen.value && errorsFilter.value === null) {
+    notificationsOpen.value = false;
+    return;
+  }
   closeOtherPanels("notifications");
   errorsFilter.value = null;
   notificationsOpen.value = true;

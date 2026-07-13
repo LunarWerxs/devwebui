@@ -77,3 +77,6 @@ $RECYCLE.BIN/
 
 # ── Project-local tooling (audit profile + run archives, not tracked) ───────
 .arkitect/
+.claude/
+.saydeploy/
+.agents/

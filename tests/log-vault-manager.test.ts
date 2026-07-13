@@ -6,6 +6,7 @@
 // a clean exit retires a stale crash hint. Real child processes (bun -e), following
 // manager.test.ts's idiom, so the daemon's actual spawn/exit/log pipeline is exercised.
 // ───────────────────────────────────────────────────────────────────────────────
+import "./isolate"; // CWD-proof data-dir isolation — must load before any server/src import
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";

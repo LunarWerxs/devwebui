@@ -1,3 +1,4 @@
+import "./isolate"; // CWD-proof data-dir isolation — must load before any server/src import
 import { expect, test } from "bun:test";
 import { Manager, START_STAGGER_MS } from "../server/src/manager";
 import type { LoadedProject, ProcessDef } from "../server/src/types";

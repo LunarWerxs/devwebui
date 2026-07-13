@@ -140,17 +140,13 @@ Reka UI, Tailwind v4 (zinc + indigo, light/dark). See the [changelog](CHANGELOG.
 ## Local-first
 
 DevWebUI runs entirely on your machine — a single daemon on your localhost, open source under the
-[MIT License](LICENSE). Core functionality needs no account and no cloud. Two optional extras are
-the only things that ever reach the network:
+[MIT License](LICENSE). Core functionality needs no account and no cloud. One optional extra is
+the only thing that ever reaches the network:
 
 - **Settings sync** — sign in with a LunarWerx Connections account to sync a small allowlist of
   portable prefs + theme across machines. Off by default; only runs after you explicitly enable it
   in Settings, and `@cnct/connect`/`@cnct/locker` (the SDKs it needs) are optional dependencies
   that are installed but never imported or initialized unless you do.
-- **Product pulse** — an anonymous, install-id-only usage ping (no path/machine/account info) sent
-  on events like app-open and update-check. It's a no-op build-wide unless the person who *built*
-  your copy configured a collector endpoint (`DEVWEBUI_PULSE_URL`); if they did and you'd rather it
-  stayed off, set `DEVWEBUI_PULSE_DISABLE=1` to force it off regardless.
 
 On the roadmap: macOS / Linux tray, an in-GUI env editor, log search, and multi-host.
 

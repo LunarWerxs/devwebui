@@ -51,6 +51,11 @@ export function createApp(manager: Manager, options: CreateAppOptions = {}) {
     // type text/html"). The client recovers from the 404 via a vite:preloadError reload (see
     // web/src/main.ts). Navigation routes (no /assets/ prefix) still fall through to the SPA below.
     app.get("/assets/*", (c) => c.text("not found", 404, { "cache-control": "no-store" }));
+    // Root-level public files (icon.svg / icon-light.svg / favicon.ico / logo-*.svg) must resolve
+    // as real files first — without this the SPA fallback below answers the browser's favicon
+    // request with index.html and the daemon-served app never shows a tab icon (the Vite dev
+    // server masks the bug by serving web/public itself).
+    app.use("/*", serveStatic({ root }));
     app.get("/*", serveStatic({ path: path.join(root, "index.html") }));
   }
 

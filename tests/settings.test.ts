@@ -4,6 +4,7 @@
 // setting (hideTrayIcon) alongside its sibling portableMode, both of which follow the
 // same read/write/default shape in server/src/runtime.ts.
 // ───────────────────────────────────────────────────────────────────────────────
+import "./isolate"; // CWD-proof data-dir isolation — must load before any server/src import
 import { expect, test } from "bun:test";
 import { readSettings, writeSettings } from "../server/src/runtime.ts";
 

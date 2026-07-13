@@ -282,7 +282,8 @@ async function save() {
             </Select>
           </template>
         </SettingsRow>
-        <SettingsRow :icon="Power" :label="t('settings.restartNow')" :description="t('settings.restartNowHint')">
+        <SettingsRow :icon="Power" :label="t('settings.restartNow')">
+          <template #info><InfoHint>{{ t('settings.restartNowHint') }}</InfoHint></template>
           <template #control><Switch id="sd-restart-now" v-model="restartNow" /></template>
         </SettingsRow>
         <SettingsRow :icon="Plug" :label="t('settings.autoStart')">
@@ -320,7 +321,8 @@ async function save() {
       <div v-show="tab === 'projects'" class="flex flex-col gap-5">
       <!-- Project scanning -->
       <SettingsGroup :label="t('settings.projectScanning')">
-        <SettingsRow :icon="Search" :label="t('settings.autoScan')" :description="t('settings.autoScanHint')">
+        <SettingsRow :icon="Search" :label="t('settings.autoScan')">
+          <template #info><InfoHint>{{ t('settings.autoScanHint') }}</InfoHint></template>
           <template #control><Switch id="sd-auto-scan" v-model="autoScan" /></template>
         </SettingsRow>
         <div class="px-3.5 py-2.5">

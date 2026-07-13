@@ -50,10 +50,10 @@ $TrayConfig = @{
 
   # Dev-only gate for the "Rebuild & Restart" menu item: a distributed build ships a
   # prebuilt web\dist and no server\src tree to rebuild from, so offering that menu item
-  # there would just fail. True when either the source tree is present (this script is
-  # running from a checkout, not a bare distribution) or DEVWEBUI_DEV=1 is set (explicit
-  # override for a dev machine laid out unusually).
-  IsDevTree            = ($env:DEVWEBUI_DEV -eq "1") -or (Test-Path (Join-Path $root "server\src"))
+  # there would just fail. Shows ONLY when DEVWEBUI_DEV=1 is explicitly set — public users,
+  # including source-checkout users, never see it; devs opt in with DEVWEBUI_DEV=1 or use
+  # the standalone misc\Rebuild.bat instead.
+  IsDevTree            = ($env:DEVWEBUI_DEV -eq "1")
 
   # Full-shutdown sentinel: the daemon drops this when a user picks "Shut Down" in the web
   # UI (or runs `devwebui stop`) — a request to terminate the WHOLE app, this tray

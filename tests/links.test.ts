@@ -13,6 +13,7 @@
 // manager.test.ts / wait-for-port-manager.test.ts's idiom. File-store cases hit
 // the on-disk .devwebui file directly, no processes spawned.
 // ───────────────────────────────────────────────────────────────────────────────
+import "./isolate"; // CWD-proof data-dir isolation — must load before any server/src import
 import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";

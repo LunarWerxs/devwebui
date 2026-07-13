@@ -6,6 +6,7 @@
 // ~/.devwebui/logs. Tests still use randomized process ids and clean up after
 // themselves so parallel test files sharing the temp dir can't collide.
 // ───────────────────────────────────────────────────────────────────────────────
+import "./isolate"; // CWD-proof data-dir isolation — must load before any server/src import
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";

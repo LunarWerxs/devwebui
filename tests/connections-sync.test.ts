@@ -34,6 +34,7 @@
 // exported reset, so beforeEach here re-establishes a clean baseline (disable(true) with the
 // fetch mock active, so the remote-delete/revoke calls are harmless no-ops) AND restores every
 // settings field this file touches, so it never leaks into tests/settings.test.ts.
+import "./isolate"; // CWD-proof data-dir isolation — must load before any server/src import
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   buildAuthorizeUrl,

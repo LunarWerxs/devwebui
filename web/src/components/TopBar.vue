@@ -185,6 +185,19 @@ async function updateApp() {
           </Button>
         </Hint>
 
+        <!-- Dedicated settings gear (family parity with ReDesign/CC Manager UI): settings is
+             too primary an action to live only inside the ⋮ overflow. Toggles the panel. -->
+        <Hint :label="t('actions.settings')">
+          <Button
+            variant="ghost"
+            size="icon"
+            :aria-label="t('actions.settings')"
+            @click="emit('settings')"
+          >
+            <Settings class="size-[1.15rem]" />
+          </Button>
+        </Hint>
+
         <!-- No Hint here: wrapping a DropdownMenuTrigger in a TooltipTrigger (both
              reka `as-child` triggers that handle pointerdown) swallows the click and
              the menu never opens. A native title is a safe, non-conflicting fallback. -->
@@ -244,9 +257,6 @@ async function updateApp() {
             <DropdownMenuSeparator />
             <DropdownMenuItem @select="emit('scan')">
               <Search class="size-4" /> {{ t("actions.scan") }}
-            </DropdownMenuItem>
-            <DropdownMenuItem @select="emit('settings')">
-              <Settings class="size-4" /> {{ t("actions.settings") }}
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" :disabled="shuttingDown" @select="runShutdown">
               <Power class="size-4" /> {{ t("actions.shutdown") }}

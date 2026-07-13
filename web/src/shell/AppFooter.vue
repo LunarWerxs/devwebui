@@ -16,7 +16,7 @@ withDefaults(defineProps<{ name?: string; url?: string }>(), {
     class="mx-auto w-full max-w-(--container-max) px-4 pb-6 pt-4 text-center text-xs text-muted-foreground/60 sm:px-6"
   >
     <span>
-      Sponsored by
+      Created by
       <a
         :href="url"
         target="_blank"

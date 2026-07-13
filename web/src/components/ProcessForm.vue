@@ -1,7 +1,24 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, ChevronRight, TriangleAlert, X } from "@lucide/vue";
+import {
+  ChevronDown,
+  ChevronRight,
+  Cpu,
+  ExternalLink,
+  FolderOpen,
+  Hash,
+  Link2,
+  Network,
+  Palette,
+  Plug,
+  SquareTerminal,
+  Tag,
+  Timer,
+  TriangleAlert,
+  Users,
+  X,
+} from "@lucide/vue";
 import {
   Dialog,
   DialogContent,
@@ -10,11 +27,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import SettingsGroup from "@/shell/SettingsGroup.vue";
+import SettingsRow from "@/shell/SettingsRow.vue";
+import InfoHint from "@/shell/InfoHint.vue";
 import IconButton from "./IconButton.vue";
 import {
   Select,
@@ -69,6 +96,17 @@ function toggleLink(localId: string) {
   form.links = form.links.includes(localId)
     ? form.links.filter((l) => l !== localId)
     : [...form.links, localId];
+}
+
+/** All / None shortcuts in the linked-servers fly-out — select every candidate, or clear. */
+function setAllLinks(select: boolean) {
+  form.links = select ? linkCandidates.value.map((p) => p.localId) : [];
+}
+
+/** Keep the linked-servers fly-out open while ticking multiple entries: reka closes the
+ *  menu on a checkbox item's `select` unless the default is prevented. */
+function keepMenuOpen(e: Event) {
+  e.preventDefault();
 }
 const runtimeOptions = [
   { label: "auto", value: "auto" },
@@ -191,73 +229,118 @@ async function remove() {
           <AlertDescription>{{ error }}</AlertDescription>
         </Alert>
 
-        <div class="flex flex-col gap-1.5">
-          <Label for="pf-name">{{ t("processForm.labelName") }}</Label>
-          <Input id="pf-name" v-model="form.name" :placeholder="t('processForm.placeholderName')" />
-        </div>
-
-        <div class="flex flex-col gap-1.5">
-          <Label for="pf-id" v-html="t('processForm.labelId')" />
-          <Input
-            id="pf-id"
-            v-model="form.id"
-            :disabled="mode === 'edit'"
-            :placeholder="t('processForm.placeholderId')"
-          />
-        </div>
-
-        <div class="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/40 px-3.5 py-3">
-          <div>
-            <div class="text-sm font-medium">{{ t("processForm.autostartLabel") }}</div>
-            <div class="mt-0.5 text-xs text-muted-foreground">{{ t("processForm.autostartDescription") }}</div>
+        <!-- Identity — the same settings-card idiom as the STARTUP / Advanced groups.
+             Name + ID share a row: Name (variable-length label) gets the wider column,
+             ID (always a short slug) the narrow one. -->
+        <SettingsGroup>
+          <div class="grid grid-cols-[1.5fr_1fr] gap-x-3.5 px-3.5 py-2.5 max-[440px]:grid-cols-1 max-[440px]:gap-y-3">
+            <div>
+              <div class="mb-1.5 flex items-center gap-1.5">
+                <Tag class="size-[18px] shrink-0 text-muted-foreground" />
+                <Label for="pf-name" class="text-sm font-normal">{{ t("processForm.labelName") }}</Label>
+                <InfoHint>{{ t("processForm.nameHint") }}</InfoHint>
+              </div>
+              <Input id="pf-name" v-model="form.name" :placeholder="t('processForm.placeholderName')" />
+            </div>
+            <div>
+              <div class="mb-1.5 flex items-center gap-1.5">
+                <Hash class="size-[18px] shrink-0 text-muted-foreground" />
+                <Label for="pf-id" class="text-sm font-normal">{{ t("processForm.labelId") }}</Label>
+                <InfoHint>{{ t("processForm.idHint") }}</InfoHint>
+              </div>
+              <Input
+                id="pf-id"
+                v-model="form.id"
+                :disabled="mode === 'edit'"
+                :placeholder="t('processForm.placeholderId')"
+              />
+            </div>
           </div>
-          <Switch
-            id="pf-autostart"
-            :model-value="form.autostart"
-            :aria-label="t('processForm.autostartLabel')"
-            @update:model-value="(v: boolean) => (form.autostart = v)"
-          />
-        </div>
+        </SettingsGroup>
 
-        <div class="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/40 px-3.5 py-3">
-          <div>
-            <div class="text-sm font-medium">{{ t("processForm.companionLabel") }}</div>
-            <div class="mt-0.5 text-xs text-muted-foreground">{{ t("processForm.companionDescription") }}</div>
-          </div>
-          <Switch
-            id="pf-companion"
-            :model-value="form.companion"
-            :aria-label="t('processForm.companionLabel')"
-            @update:model-value="(v: boolean) => (form.companion = v)"
-          />
-        </div>
+        <!-- Startup behaviour — compact settings-style rows: verbose copy lives behind the
+             InfoHint (ⓘ) hover, and linked servers collapse into a fly-out instead of a
+             full-width grid taking over the dialog. -->
+        <SettingsGroup :label="t('processForm.startupGroup')">
+          <SettingsRow :icon="Plug" :label="t('processForm.autostartLabel')">
+            <template #info><InfoHint>{{ t("processForm.autostartDescription") }}</InfoHint></template>
+            <template #control>
+              <Switch
+                id="pf-autostart"
+                :model-value="form.autostart"
+                :aria-label="t('processForm.autostartLabel')"
+                @update:model-value="(v: boolean) => (form.autostart = v)"
+              />
+            </template>
+          </SettingsRow>
 
-        <div v-if="linkCandidates.length" class="flex flex-col gap-1.5">
-          <Label>{{ t("processForm.linksLabel") }}</Label>
-          <div class="text-xs text-muted-foreground">{{ t("processForm.linksDescription") }}</div>
-          <div class="mt-1 grid grid-cols-2 gap-1.5 max-[520px]:grid-cols-1">
-            <button
-              v-for="p in linkCandidates"
-              :key="p.localId"
-              type="button"
-              class="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm transition-colors"
-              :class="form.links.includes(p.localId)
-                ? 'border-primary/50 bg-primary/5 text-foreground'
-                : 'text-muted-foreground hover:bg-accent'"
-              :aria-pressed="form.links.includes(p.localId)"
-              @click="toggleLink(p.localId)"
-            >
-              <span class="flex min-w-0 items-center gap-2">
-                <span
-                  class="size-2.5 shrink-0 rounded-full"
-                  :style="{ backgroundColor: p.color || 'var(--primary)' }"
-                />
-                <span class="truncate">{{ p.name }}</span>
-              </span>
-              <Check v-if="form.links.includes(p.localId)" class="size-4 shrink-0 text-primary" />
-            </button>
-          </div>
-        </div>
+          <SettingsRow :icon="Users" :label="t('processForm.companionLabel')">
+            <template #info><InfoHint>{{ t("processForm.companionDescription") }}</InfoHint></template>
+            <template #control>
+              <Switch
+                id="pf-companion"
+                :model-value="form.companion"
+                :aria-label="t('processForm.companionLabel')"
+                @update:model-value="(v: boolean) => (form.companion = v)"
+              />
+            </template>
+          </SettingsRow>
+
+          <SettingsRow v-if="linkCandidates.length" :icon="Link2" :label="t('processForm.linksLabel')">
+            <template #info><InfoHint>{{ t("processForm.linksDescription") }}</InfoHint></template>
+            <template #control>
+              <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                  <Button type="button" variant="outline" size="lg" class="gap-1.5">
+                    {{ form.links.length ? t("processForm.linksCount", { count: form.links.length }) : t("processForm.linksNone") }}
+                    <ChevronDown class="size-3.5 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" class="w-56">
+                  <!-- Quick All / None with a live count, so a long candidate list isn't ticked one by one. -->
+                  <div class="flex items-center justify-between gap-2 px-2 py-1">
+                    <span class="text-[11px] tabular-nums text-muted-foreground">{{ form.links.length }}/{{ linkCandidates.length }}</span>
+                    <div class="flex items-center gap-0.5 text-xs">
+                      <button
+                        type="button"
+                        class="rounded px-1.5 py-0.5 font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                        :disabled="form.links.length === linkCandidates.length"
+                        @click="setAllLinks(true)"
+                      >
+                        {{ t("processForm.linksAll") }}
+                      </button>
+                      <span class="text-muted-foreground/40" aria-hidden="true">·</span>
+                      <button
+                        type="button"
+                        class="rounded px-1.5 py-0.5 font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                        :disabled="form.links.length === 0"
+                        @click="setAllLinks(false)"
+                      >
+                        {{ t("processForm.linksClear") }}
+                      </button>
+                    </div>
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    v-for="p in linkCandidates"
+                    :key="p.localId"
+                    :model-value="form.links.includes(p.localId)"
+                    @update:model-value="() => toggleLink(p.localId)"
+                    @select="keepMenuOpen"
+                  >
+                    <span class="flex min-w-0 items-center gap-2">
+                      <span
+                        class="size-2.5 shrink-0 rounded-full"
+                        :style="{ backgroundColor: p.color || 'var(--primary)' }"
+                      />
+                      <span class="truncate">{{ p.name }}</span>
+                    </span>
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </template>
+          </SettingsRow>
+        </SettingsGroup>
 
         <div class="border-t border-border pt-3.5">
           <button
@@ -278,78 +361,104 @@ async function remove() {
             :class="advancedOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'"
           >
             <div class="min-h-0 overflow-hidden">
-              <div class="flex flex-col gap-4 pt-3.5">
-                <div class="grid grid-cols-2 gap-3.5 max-[520px]:grid-cols-1">
-                  <div class="flex flex-col gap-1.5">
-                    <Label for="pf-cwd" v-html="t('processForm.labelCwd')" />
+              <!-- Advanced fields — the same settings-card idiom as the STARTUP group:
+                   each field's "· optional" / what-it-does copy now lives behind an ⓘ hover
+                   instead of cluttering the label. -->
+              <div class="pt-3.5">
+                <SettingsGroup>
+                  <div class="px-3.5 py-2.5">
+                    <div class="mb-1.5 flex items-center gap-1.5">
+                      <FolderOpen class="size-[18px] shrink-0 text-muted-foreground" />
+                      <Label for="pf-cwd" class="text-sm font-normal">{{ t("processForm.labelCwd") }}</Label>
+                      <InfoHint>{{ t("processForm.cwdHint") }}</InfoHint>
+                    </div>
                     <Input id="pf-cwd" v-model="form.cwd" :placeholder="t('processForm.placeholderCwd')" />
                   </div>
-                  <div class="flex flex-col gap-1.5">
-                    <Label for="pf-port" v-html="t('processForm.labelPort')" />
-                    <Input
-                      id="pf-port"
-                      type="number"
-                      min="1"
-                      :model-value="form.port ?? ''"
-                      :placeholder="t('processForm.placeholderPort')"
-                      @update:model-value="(v) => (form.port = v === '' || v == null ? null : Number(v))"
-                    />
-                  </div>
-                </div>
 
-                <div class="flex flex-col gap-1.5">
-                  <Label for="pf-url" v-html="t('processForm.labelUrl')" />
-                  <Input id="pf-url" v-model="form.url" :placeholder="t('processForm.placeholderUrl')" />
-                </div>
-
-                <div class="flex flex-col gap-1.5">
-                  <Label for="pf-wait-for-port" v-html="t('processForm.labelWaitForPort')" />
-                  <Input
-                    id="pf-wait-for-port"
-                    v-model="form.waitForPort"
-                    :placeholder="t('processForm.placeholderWaitForPort')"
-                  />
-                </div>
-
-                <div class="grid grid-cols-2 gap-3.5 max-[520px]:grid-cols-1">
-                  <div class="grid grid-cols-[38px_1fr] items-end gap-2.5">
-                    <label
-                      class="relative size-[38px] cursor-pointer overflow-hidden rounded-lg border border-border"
-                      :style="{ backgroundColor: form.color || 'var(--primary)' }"
-                      :title="form.color || t('processForm.titlePickColor')"
-                    >
-                      <input
-                        type="color"
-                        class="absolute -inset-1 size-[130%] cursor-pointer border-0 bg-transparent p-0"
-                        :value="form.color || '#6366f1'"
-                        :aria-label="t('processForm.titlePickColor')"
-                        @input="onColorPick"
+                  <!-- Port + Wait-for-port share a row — both hold short values. -->
+                  <div class="grid grid-cols-2 gap-x-3.5 px-3.5 py-2.5 max-[440px]:grid-cols-1 max-[440px]:gap-y-3">
+                    <div>
+                      <div class="mb-1.5 flex items-center gap-1.5">
+                        <Network class="size-[18px] shrink-0 text-muted-foreground" />
+                        <Label for="pf-port" class="text-sm font-normal">{{ t("processForm.labelPort") }}</Label>
+                        <InfoHint>{{ t("processForm.portHint") }}</InfoHint>
+                      </div>
+                      <Input
+                        id="pf-port"
+                        type="number"
+                        min="1"
+                        :model-value="form.port ?? ''"
+                        :placeholder="t('processForm.placeholderPort')"
+                        @update:model-value="(v) => (form.port = v === '' || v == null ? null : Number(v))"
                       />
-                    </label>
-                    <div class="flex flex-col gap-1.5">
-                      <Label for="pf-color" v-html="t('processForm.labelColor')" />
-                      <Input id="pf-color" v-model="form.color" :placeholder="t('processForm.placeholderColor')" />
+                    </div>
+                    <div>
+                      <div class="mb-1.5 flex items-center gap-1.5">
+                        <Timer class="size-[18px] shrink-0 text-muted-foreground" />
+                        <Label for="pf-wait-for-port" class="text-sm font-normal">{{ t("processForm.labelWaitForPort") }}</Label>
+                        <InfoHint>{{ t("processForm.waitForPortHint") }}</InfoHint>
+                      </div>
+                      <Input
+                        id="pf-wait-for-port"
+                        v-model="form.waitForPort"
+                        :placeholder="t('processForm.placeholderWaitForPort')"
+                      />
                     </div>
                   </div>
-                  <div class="flex flex-col gap-1.5">
-                    <Label for="pf-runtime">{{ t("processForm.labelRuntime") }}</Label>
-                    <Select v-model="form.runtime">
-                      <SelectTrigger id="pf-runtime">
-                        <SelectValue :placeholder="t('processForm.runtimeAuto')" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem v-for="o in runtimeOptions" :key="o.value" :value="o.value">
-                          {{ o.value === "auto" ? t("processForm.runtimeAuto") : o.value === "node" ? t("processForm.runtimeNode") : t("processForm.runtimeBun") }}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
 
-                <div class="flex flex-col gap-1.5">
-                  <Label for="pf-cmd">{{ t("processForm.labelCommand") }}</Label>
-                  <Input id="pf-cmd" v-model="form.command" :placeholder="t('processForm.placeholderCommand')" />
-                </div>
+                  <div class="px-3.5 py-2.5">
+                    <div class="mb-1.5 flex items-center gap-1.5">
+                      <ExternalLink class="size-[18px] shrink-0 text-muted-foreground" />
+                      <Label for="pf-url" class="text-sm font-normal">{{ t("processForm.labelUrl") }}</Label>
+                      <InfoHint>{{ t("processForm.urlHint") }}</InfoHint>
+                    </div>
+                    <Input id="pf-url" v-model="form.url" :placeholder="t('processForm.placeholderUrl')" />
+                  </div>
+
+                  <SettingsRow :icon="Palette" :label="t('processForm.labelColor')">
+                    <template #info><InfoHint>{{ t("processForm.colorHint") }}</InfoHint></template>
+                    <template #control>
+                      <label
+                        class="relative block size-7 cursor-pointer overflow-hidden rounded-md border border-border"
+                        :style="{ backgroundColor: form.color || 'var(--primary)' }"
+                        :title="form.color || t('processForm.titlePickColor')"
+                      >
+                        <input
+                          type="color"
+                          class="absolute -inset-1 size-[150%] cursor-pointer border-0 bg-transparent p-0"
+                          :value="form.color || '#6366f1'"
+                          :aria-label="t('processForm.titlePickColor')"
+                          @input="onColorPick"
+                        />
+                      </label>
+                    </template>
+                  </SettingsRow>
+
+                  <SettingsRow :icon="Cpu" :label="t('processForm.labelRuntime')">
+                    <template #info><InfoHint>{{ t("processForm.runtimeHint") }}</InfoHint></template>
+                    <template #control>
+                      <Select v-model="form.runtime">
+                        <SelectTrigger id="pf-runtime" class="h-8 w-28" :aria-label="t('processForm.labelRuntime')">
+                          <SelectValue :placeholder="t('processForm.runtimeAuto')" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem v-for="o in runtimeOptions" :key="o.value" :value="o.value">
+                            {{ o.value === "auto" ? t("processForm.runtimeAuto") : o.value === "node" ? t("processForm.runtimeNode") : t("processForm.runtimeBun") }}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </template>
+                  </SettingsRow>
+
+                  <div class="px-3.5 py-2.5">
+                    <div class="mb-1.5 flex items-center gap-1.5">
+                      <SquareTerminal class="size-[18px] shrink-0 text-muted-foreground" />
+                      <Label for="pf-cmd" class="text-sm font-normal">{{ t("processForm.labelCommand") }}</Label>
+                      <InfoHint>{{ t("processForm.commandHint") }}</InfoHint>
+                    </div>
+                    <Input id="pf-cmd" v-model="form.command" :placeholder="t('processForm.placeholderCommand')" />
+                  </div>
+                </SettingsGroup>
               </div>
             </div>
           </div>

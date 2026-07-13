@@ -42,3 +42,52 @@ test("every ~/.devwebui path resolves through data-dir.ts (no direct homedir joi
       `route them through data-dir.ts's dataDir(): ${offenders.join(", ")}`,
   ).toEqual([]);
 });
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Guard 2 — the SECOND half of the leak story. Even with every path going through
+// dataDir(), isolation still hinges on DEVWEBUI_HOME being set. tests/setup.ts sets it
+// as a bunfig `preload`, but bun discovers bunfig.toml RELATIVE TO THE CWD — so
+// `bun test tests/foo.test.ts` launched from a parent/unrelated dir never loads the
+// preload, and a test that spins up a real Manager (or writeSettings/appendLog/…) then
+// persists fixtures into the LIVE ~/.devwebui. Importing ./isolate sets DEVWEBUI_HOME
+// no matter the CWD. This invariant fails the moment a data-WRITING test omits it.
+// ───────────────────────────────────────────────────────────────────────────────
+const TESTS_DIR = import.meta.dir;
+
+// Modules whose (value, non-type) import means the test persists something under ~/.devwebui:
+// Manager (spawn/log/error pipeline), log-vault (appendLog), runtime (settings.json), state.json,
+// instance pointer, connections.json, and http (createApp mounts a Manager). `errors`/`diagnose`
+// are deliberately absent — they're imported for TYPES by pure in-memory analyzer tests.
+const WRITER_MODULES = [
+  "manager",
+  "log-vault",
+  "runtime",
+  "state",
+  "instance",
+  "connections",
+  "http",
+];
+const WRITER_IMPORT = new RegExp(
+  // A value import (`import … from`, NOT `import type …`) of one of the writer modules — the barrel
+  // itself (or its /index), with an optional .ts/.js. Deliberately NOT a deep subpath: importing a
+  // PURE submodule like `manager/wait-for-port` (in-memory ordering, no I/O) is not a data write.
+  String.raw`^\s*import\s+(?!type\b)[^;]*?from\s*["']\.\./server/src/(?:${WRITER_MODULES.join("|")})(?:/index)?(?:\.[tj]s)?["']`,
+  "m",
+);
+const ISOLATE_IMPORT = /import\s+["']\.\/(?:isolate|setup)["']/;
+
+test("every data-writing test isolates its data dir (imports ./isolate)", () => {
+  const offenders = readdirSync(TESTS_DIR)
+    .filter((f) => f.endsWith(".test.ts"))
+    .filter((f) => {
+      const src = readFileSync(path.join(TESTS_DIR, f), "utf8");
+      return WRITER_IMPORT.test(src) && !ISOLATE_IMPORT.test(src);
+    });
+
+  expect(
+    offenders,
+    `These tests value-import a module that persists under ~/.devwebui but don't import ./isolate, ` +
+      `so \`bun test <file>\` from a dir where bunfig.toml isn't discovered would pollute the real ` +
+      `data dir — add \`import "./isolate";\` as the first import: ${offenders.join(", ")}`,
+  ).toEqual([]);
+});

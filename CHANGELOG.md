@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-13
+
 ### Changed
 - **Brand tray/taskbar icon regenerated** from the current stacked-servers vector (the shipped
   `misc/DevWebUI.ico` had drifted to a generic placeholder). A new `misc/Make-Icon.ps1` rebuilds
@@ -42,8 +44,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release-readiness audit: makes a public `bun install` (no private LunarWerx registry access)
 boot cleanly, clarifies what "Sign in with Connections" actually does, and cleans up some
-internal duplication. No new network calls, install IDs, or update-check behavior — nothing
-tracking-related changed.
+internal duplication. No new network calls or install IDs.
 
 ### Changed
 - **Sign in with Connections now uses the official `@cnct/connect` / `@cnct/locker` SDKs**
@@ -54,10 +55,8 @@ tracking-related changed.
 - Existing sign-ins are migrated to the new SDK's token storage automatically on first boot
   after upgrading — no need to sign in again. "Forget" now also revokes the credential with
   the server, not just locally.
-- **README clarifies the two optional, off-by-default things that ever touch the network:**
-  settings sync (requires explicitly signing in with a Connections account) and an anonymous,
-  install-id-only usage ping that only exists if the person who *built* your copy configured
-  it — with an env var to force it off either way.
+- **README clarifies the one optional, off-by-default thing that ever touches the network:**
+  settings sync, which requires explicitly signing in with a Connections account.
 - **README rewritten for humans**, with real screenshots (dashboard, live logs, de-duplicated
   error log, light theme) and a release badge; the full 17-tool MCP list moved to `AI_GUIDE.md`.
 - **Release notes come from the CHANGELOG** (the tagged version's section) rather than an

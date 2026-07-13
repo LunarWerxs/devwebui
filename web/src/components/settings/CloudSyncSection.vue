@@ -12,6 +12,7 @@ import { Cloud, CloudCheck, CloudOff, ExternalLink, LogOut, RefreshCw, User } fr
 import SettingsGroup from "@/shell/SettingsGroup.vue";
 import SettingsRow from "@/shell/SettingsRow.vue";
 import { Button } from "@/components/ui/button";
+import IconButton from "@/components/IconButton.vue";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAppStore } from "@/store";
@@ -109,10 +110,9 @@ async function onDisconnectClick() {
         <template #control>
           <!-- live sync status stays visible (not tucked behind the info icon like static help) -->
           <span class="text-[12px] text-muted-foreground">{{ syncedLabel }}</span>
-          <Button variant="ghost" size="sm" :disabled="store.syncLoading" @click="onSyncNow">
+          <IconButton :tooltip="t('cloudSync.syncNow')" :disabled="store.syncLoading" @click="onSyncNow">
             <RefreshCw class="size-3.5" :class="{ 'animate-spin': store.syncLoading }" />
-            {{ store.syncLoading ? t("cloudSync.syncing") : t("cloudSync.syncNow") }}
-          </Button>
+          </IconButton>
         </template>
       </SettingsRow>
       <SettingsRow>

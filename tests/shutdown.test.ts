@@ -1,3 +1,4 @@
+import "./isolate"; // CWD-proof data-dir isolation — must load before any server/src import
 import { expect, test } from "bun:test";
 import { ROUTES } from "../shared/routes";
 import { createApp } from "../server/src/http";
