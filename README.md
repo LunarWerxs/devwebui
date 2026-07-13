@@ -140,8 +140,7 @@ Reka UI, Tailwind v4 (zinc + indigo, light/dark). See the [changelog](CHANGELOG.
 ## Local-first
 
 DevWebUI runs entirely on your machine — a single daemon on your localhost, open source under the
-[MIT License](LICENSE). Core functionality needs no account and no cloud. One optional extra is
-the only thing that ever reaches the network:
+[MIT License](LICENSE). Core functionality needs no account and no cloud. One optional extra:
 
 - **Settings sync** — sign in with a LunarWerx Connections account to sync a small allowlist of
   portable prefs + theme across machines. Off by default; only runs after you explicitly enable it

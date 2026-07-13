@@ -44,7 +44,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release-readiness audit: makes a public `bun install` (no private LunarWerx registry access)
 boot cleanly, clarifies what "Sign in with Connections" actually does, and cleans up some
-internal duplication. No new network calls or install IDs.
+internal duplication.
 
 ### Changed
 - **Sign in with Connections now uses the official `@cnct/connect` / `@cnct/locker` SDKs**
