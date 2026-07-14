@@ -7,6 +7,7 @@ import { materializeSettings, readSettings } from "./runtime";
 import { initConnections, pullNow, syncStatus } from "./connections";
 import { daemonPort } from "./constants";
 import { findFreePort, isPortListening } from "./ports";
+import { skipSingleInstanceGuard } from "./single-instance";
 import {
   clearInstanceInfo,
   clearShutdownRequest,
@@ -46,14 +47,10 @@ process.on("unhandledRejection", (reason) => {
 
 // Single instance: if a DevWebUI daemon is already serving, don't start a second
 // one (a second would just hop to another port and confuse the launcher/MCP about
-// which instance is "the" one). The dev launcher pins DEVWEBUI_PORT_FIXED and runs
-// its own pre-flight check — and its `--watch` reloads must be free to rebind the
-// same port — so that flow is exempt from this guard.
-// The auto-update successor (DEVWEBUI_RELAUNCH=1) is exempt too: its predecessor is
-// still alive and answering /api/health during the ~800ms handoff, so probing here
-// would see "already running" and make the successor exit, leaving ZERO daemons. It
-// instead falls through to the DEVWEBUI_RELAUNCH port-wait below and takes over.
-if (process.env.DEVWEBUI_PORT_FIXED !== "1" && process.env.DEVWEBUI_RELAUNCH !== "1") {
+// which instance is "the" one). The dev launcher (DEVWEBUI_PORT_FIXED) and the
+// auto-update successor (DEVWEBUI_RELAUNCH) are exempt; see skipSingleInstanceGuard
+// for why, and single-instance.test.ts for the regression guard on that exemption.
+if (!skipSingleInstanceGuard()) {
   const live = await findLiveInstance();
   if (live) {
     console.log(
