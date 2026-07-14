@@ -49,7 +49,11 @@ process.on("unhandledRejection", (reason) => {
 // which instance is "the" one). The dev launcher pins DEVWEBUI_PORT_FIXED and runs
 // its own pre-flight check — and its `--watch` reloads must be free to rebind the
 // same port — so that flow is exempt from this guard.
-if (process.env.DEVWEBUI_PORT_FIXED !== "1") {
+// The auto-update successor (DEVWEBUI_RELAUNCH=1) is exempt too: its predecessor is
+// still alive and answering /api/health during the ~800ms handoff, so probing here
+// would see "already running" and make the successor exit, leaving ZERO daemons. It
+// instead falls through to the DEVWEBUI_RELAUNCH port-wait below and takes over.
+if (process.env.DEVWEBUI_PORT_FIXED !== "1" && process.env.DEVWEBUI_RELAUNCH !== "1") {
   const live = await findLiveInstance();
   if (live) {
     console.log(
