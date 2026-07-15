@@ -10,6 +10,7 @@ import type {
   ScanPreset,
   ScanResult,
   Settings,
+  ShortcutResult,
   TakeOverResult,
   UpdateApplyResult,
   UpdateStatus,
@@ -31,6 +32,8 @@ export type {
   ScanPreset,
   ScanResult,
   Settings,
+  ShortcutFailure,
+  ShortcutResult,
   TakeOverResult,
   UpdateApplyResult,
   UpdateStatus,
@@ -122,12 +125,26 @@ export const saveSettings = (patch: Partial<Settings> & { restart?: boolean }) =
  * Open the app UI in a chromeless Chromium app window (Portable mode). Best-effort:
  * resolves `{ ok: false, reason }` instead of throwing when no Edge/Chrome is installed
  * or the spawn fails — the caller surfaces that to the user instead of treating it as fatal.
+ *
+ * `path` opens the window on a specific view (e.g. "/?process=<id>") instead of the
+ * dashboard root; the server only honours a same-origin relative path.
  */
-export const openPortableWindow = () =>
+export const openPortableWindow = (path?: string) =>
   reqJson<{ ok: true; browser: string } | { ok: false; reason: "no-browser" | "spawn-failed" }>(
     ROUTES.portableWindow,
-    { method: "POST" },
+    jsonInit("POST", path ? { path } : {}),
   );
+
+/**
+ * Create a Desktop shortcut that starts this process (plus its linked group) later,
+ * without the dashboard. Windows-only; other platforms resolve `{ ok: false }`.
+ */
+export const createProcessShortcut = (id: string) =>
+  reqJson<ShortcutResult>(ROUTES.processShortcut.build(id), { method: "POST" });
+
+/** Create a Desktop shortcut that starts every process in this project. */
+export const createProjectShortcut = (id: string) =>
+  reqJson<ShortcutResult>(ROUTES.projectShortcut.build(id), { method: "POST" });
 
 /**
  * Toggle the opt-in silent auto-update (checks the update remote on a schedule and, when a

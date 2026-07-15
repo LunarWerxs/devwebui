@@ -6,6 +6,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Desktop shortcuts for one server (or a whole repo).** The process ⋮ menu gains **Add desktop
+  shortcut**; the project ⋮ menu gains the same for every process in the codebase. Double-clicking
+  the `.lnk` boots the daemon if it isn't running, loads the project if it isn't registered, starts
+  the process — bringing up its `links` group and the project's companions, since it goes through
+  the ordinary start action — and opens a small focused window showing just that server: status,
+  metrics, logs, and a Stop button. No console flash (the shortcut runs through `wscript.exe` and a
+  generated launcher), and clicking it twice is a no-op rather than a restart. Windows only;
+  elsewhere the action reports that instead of failing. Backed by new
+  `POST /api/processes/:id/shortcut` and `POST /api/projects/:id/shortcut` endpoints, plus the
+  `create_process_shortcut` / `create_project_shortcut` MCP tools (now 31 total).
+- **The compiled binary is now also the CLI.** `dist/devwebui.exe` previously only booted the
+  daemon, so a portable install had no command line at all and nothing for a shortcut to invoke.
+  Any argument now dispatches to the CLI (`devwebui.exe status`, `… start-process web`, `… mcp`),
+  while a bare launch still boots the daemon exactly as before. Two new verbs, `open-process` and
+  `open-project`, are what the shortcuts run.
+
+### Fixed
+- **`devwebui start` from the compiled binary.** It hardcoded a spawn of `bun server/src/index.ts`,
+  a path that doesn't exist outside a checkout. Daemon launches now resolve the right vector for the
+  build they're running in.
+
 ## [0.4.0] - 2026-07-13
 
 ### Added

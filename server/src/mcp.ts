@@ -316,6 +316,20 @@ const TOOLS: McpEngineTool[] = [
       }),
   },
   {
+    name: "create_process_shortcut",
+    description:
+      "Create a Windows Desktop shortcut that starts one process later without opening the dashboard. Double-clicking it boots the daemon if needed, loads the project if needed, starts the process (plus its linked/companion processes) and opens a focused window with a Stop button. Windows-only: elsewhere it returns { ok: false, reason: 'unsupported-platform' }.",
+    inputSchema: S({ id: { type: "string" } }, ["id"]),
+    run: (a) => api(ROUTES.processShortcut.build(str(a.id)), { method: "POST" }),
+  },
+  {
+    name: "create_project_shortcut",
+    description:
+      "Create a Windows Desktop shortcut that starts EVERY process in a project. Same behaviour as create_process_shortcut, but project-wide and it opens the dashboard rather than a single-process window.",
+    inputSchema: S({ id: { type: "string" } }, ["id"]),
+    run: (a) => api(ROUTES.projectShortcut.build(str(a.id)), { method: "POST" }),
+  },
+  {
     name: "start_process",
     description:
       "Start a managed process by id. Its linked processes (`links`) and the project's companion processes start with it.",

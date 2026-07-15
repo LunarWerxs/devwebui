@@ -55,7 +55,8 @@ taken, the daemon hops to the next free one and opens the URL it actually bound.
 - **One panel per repo** — a `.devwebui` file groups every process under one collapsible header; your projects auto-reload next launch.
 - **Port-conflict rescue** — detects a taken port, tells you which process is holding it, and frees it on request.
 - **Persistent error log** — de-duplicated stderr / crashes / error-looking stdout that survives restarts.
-- **Built for agents** — 17 MCP tools drive the same daemon you click, off one shared state.
+- **Desktop shortcuts** — send any server (or a whole repo) to your Desktop from the ⋮ menu; double-click starts it, linked servers and all, in a small window with a Stop button.
+- **Built for agents** — a full set of MCP tools drives the same daemon you click, off one shared state.
 - **Localized & themed** — full i18n (English base; [add a language](web/src/i18n/README.md)), light/dark.
 - **Lives in your tray** — a Windows tray app runs the daemon hidden; Open / Rebuild / Restart / Quit.
 

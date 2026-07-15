@@ -97,6 +97,15 @@ export const ROUTES = {
     pattern: "/api/processes/:id/diagnose",
     build: (id: string) => `/api/processes/${id}/diagnose`,
   },
+  /**
+   * POST a desktop shortcut that starts this process (Windows only).
+   * MUST be registered before {@link ROUTES.processAction} — `/:id/:action` would
+   * otherwise swallow `/:id/shortcut`, exactly as it would `/:id/free-port`.
+   */
+  processShortcut: {
+    pattern: "/api/processes/:id/shortcut",
+    build: (id: string) => `/api/processes/${id}/shortcut`,
+  },
 
   // ---- parameterized: projects ----
   /** PUT project-level metadata (rename + recolor) — rewrites the .devwebui file's top-level name/color. */
@@ -124,6 +133,15 @@ export const ROUTES = {
     pattern: "/api/projects/:id/processes/:localId/star",
     build: (id: string, localId: string) => `/api/projects/${id}/processes/${localId}/star`,
   },
+  /**
+   * POST a desktop shortcut that starts every process in this project (Windows only).
+   * MUST be registered before {@link ROUTES.projectAction} — same `/:id/:action`
+   * shadowing hazard as {@link ROUTES.processShortcut}.
+   */
+  projectShortcut: {
+    pattern: "/api/projects/:id/shortcut",
+    build: (id: string) => `/api/projects/${id}/shortcut`,
+  },
 } as const;
 
 // Compile-time guard: every parameterized entry conforms to `ParamRoute`
@@ -135,11 +153,13 @@ type _AssertParamRoutes = {
   processLogFile: typeof ROUTES.processLogFile extends ParamRoute ? true : never;
   processFreePort: typeof ROUTES.processFreePort extends ParamRoute ? true : never;
   processDiagnose: typeof ROUTES.processDiagnose extends ParamRoute ? true : never;
+  processShortcut: typeof ROUTES.processShortcut extends ParamRoute ? true : never;
   projectUpdate: typeof ROUTES.projectUpdate extends ParamRoute ? true : never;
   projectAction: typeof ROUTES.projectAction extends ParamRoute ? true : never;
   projectProcesses: typeof ROUTES.projectProcesses extends ParamRoute ? true : never;
   projectProcess: typeof ROUTES.projectProcess extends ParamRoute ? true : never;
   projectProcessStar: typeof ROUTES.projectProcessStar extends ParamRoute ? true : never;
+  projectShortcut: typeof ROUTES.projectShortcut extends ParamRoute ? true : never;
 };
 const _assert: _AssertParamRoutes = {
   processAction: true,
@@ -147,10 +167,12 @@ const _assert: _AssertParamRoutes = {
   processLogFile: true,
   processFreePort: true,
   processDiagnose: true,
+  processShortcut: true,
   projectUpdate: true,
   projectAction: true,
   projectProcesses: true,
   projectProcess: true,
   projectProcessStar: true,
+  projectShortcut: true,
 };
 void _assert;

@@ -11,6 +11,7 @@ import {
 } from "../projects";
 import type { ProjectView } from "../types";
 import { ROUTES } from "../../../shared/routes";
+import { createProcessShortcut, createProjectShortcut } from "../shortcuts";
 import { fail, guard, readBody } from "./core";
 
 /** Register project-process-editing routes and live-process-instance routes. */
@@ -92,6 +93,16 @@ export function registerProcessRoutes(app: Hono, manager: Manager) {
     });
   });
 
+  // Desktop shortcut for a whole codebase. Registered BEFORE projectAction: Hono
+  // matches in registration order, and `/:id/:action` would otherwise claim
+  // `/:id/shortcut` and reject it as an unknown action.
+  app.post(ROUTES.projectShortcut.pattern, async (c) => {
+    const id = c.req.param("id");
+    const proj = manager.listProjects().find((p) => p.id === id);
+    if (!proj) return fail(c, "unknown project", 404);
+    return c.json(await createProjectShortcut({ devwebuiPath: proj.path, projectName: proj.name }));
+  });
+
   app.post(ROUTES.projectAction.pattern, async (c) => {
     const { id, action } = c.req.param();
     const proj = manager.listProjects().find((p) => p.id === id);
@@ -145,6 +156,27 @@ export function registerProcessRoutes(app: Hono, manager: Manager) {
     const diagnosis = await manager.diagnoseProcess(id);
     if (!diagnosis) return fail(c, "unknown process", 404);
     return c.json(diagnosis);
+  });
+
+  // Desktop shortcut for ONE process. Registered BEFORE processAction for the same
+  // `/:id/:action` shadowing reason as free-port/diagnose above. Returns the shortcut
+  // module's result verbatim, including its non-throwing `{ ok: false, reason }`
+  // shapes (a Mac/Linux caller, or a PowerShell that refused) — the GUI reports those
+  // rather than treating them as a request failure.
+  app.post(ROUTES.processShortcut.pattern, async (c) => {
+    const id = c.req.param("id");
+    const v = manager.view(id);
+    if (!v) return fail(c, "unknown process", 404);
+    const filePath = manager.getProjectPath(v.projectId);
+    if (!filePath) return fail(c, "unknown project", 404);
+    return c.json(
+      await createProcessShortcut({
+        devwebuiPath: filePath,
+        localId: v.localId,
+        processName: v.name,
+        projectName: v.projectName,
+      }),
+    );
   });
 
   app.post(ROUTES.processAction.pattern, async (c) => {

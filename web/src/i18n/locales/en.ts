@@ -117,6 +117,27 @@ export default {
     alsoStarted: "Also started: {names}",
     alsoStopped: "Also stopped: {names}",
   },
+  shortcut: {
+    addToDesktop: "Add desktop shortcut",
+    created: 'Shortcut "{name}" added to your Desktop',
+    unsupported: "Desktop shortcuts are only available on Windows",
+    failed: "Could not create the shortcut: {detail}",
+  },
+  focus: {
+    openDashboard: "Dashboard",
+    loading: "Loading…",
+    close: "Close",
+    closeTitle: "Leave {name} running?",
+    closeDescription:
+      "This server is still running. Closing this window doesn't stop it — DevWebUI keeps it up until you stop it here or from the dashboard.",
+    closeCancel: "Cancel",
+    leaveRunning: "Leave running",
+    stopAndClose: "Stop and close",
+    stopFailed: "Could not stop the server",
+    notFound: "This process is gone",
+    notFoundHint:
+      "The shortcut points at a process that is no longer in the project's .devwebui file — it may have been renamed or removed.",
+  },
   notifications: {
     panelTitle: "Notifications",
     errorsForProcess: "· errors for {name}",
@@ -143,6 +164,7 @@ export default {
   },
   processCard: {
     actionFailed: "Action failed",
+    moreActions: "More actions",
     errorCountAriaLabel: "{count} error — view error log | {count} errors — view error log",
     switchAriaLabelEnabled: "Enabled — toggle off",
     switchAriaLabelDisabled: "Disabled — toggle on",

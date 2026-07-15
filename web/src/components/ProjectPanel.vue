@@ -6,6 +6,7 @@ import {
   Boxes,
   ChevronDown,
   EllipsisVertical,
+  MonitorDown,
   Pencil,
   Play,
   Plus,
@@ -42,6 +43,7 @@ import IconButton from "./IconButton.vue";
 import { disableProject, enableProject, startProject, stopProject } from "@/api";
 import { useAppStore } from "@/store";
 import { useRunAction } from "@/lib/useAction";
+import { useShortcutAction } from "@/lib/shortcut";
 import { useTooltipConfig } from "@/lib/tooltip-config";
 import { statusPill } from "@/lib/severity";
 import { arrangeProcesses } from "@/lib/arrange";
@@ -142,6 +144,7 @@ async function saveEdit() {
 }
 
 const runAction = useRunAction("projectPanel.actionFailed");
+const { addProjectShortcut } = useShortcutAction();
 </script>
 
 <template>
@@ -202,6 +205,9 @@ const runAction = useRunAction("projectPanel.actionFailed");
             </DropdownMenuItem>
             <DropdownMenuItem @select="emit('addProcess', project.id)">
               <Plus class="size-4" /> {{ t("projectPanel.addProcess") }}
+            </DropdownMenuItem>
+            <DropdownMenuItem @select="addProjectShortcut(project.id)">
+              <MonitorDown class="size-4" /> {{ t("shortcut.addToDesktop") }}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" @select="removeDialogOpen = true">

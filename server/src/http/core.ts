@@ -164,7 +164,12 @@ export function registerRealtime(app: Hono, manager: Manager) {
 
 /** Register health/update/pulse/shutdown/settings/error-log routes. */
 export function registerSystemRoutes(app: Hono, manager: Manager, options: CreateAppOptions) {
-  app.get(ROUTES.health, (c) => c.json({ ok: true }));
+  // `service` is the identity the launchers match on. Without it a responder is indistinguishable
+  // from any other server that happens to answer this path -- a Vite dev server returns its SPA
+  // fallback (200, text/html) for /api/health, and misc/Restart-Daemon.ps1 has to be able to tell
+  // that apart from us before it kills anything. Every app in the family stamps this; DevWebUI was
+  // the last one that didn't, which is why its daemon could not be found by the restart scripts.
+  app.get(ROUTES.health, (c) => c.json({ ok: true, service: "devwebui", ts: Date.now() }));
   app.get(ROUTES.updates, async (c) => {
     const status = await checkForUpdate();
     void recordPulse("update_check", {
@@ -260,9 +265,17 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
   });
 
   // ---- portable window (chromeless app window instead of a browser tab) ----
-  app.post(ROUTES.portableWindow, async (c) =>
-    guard(c, async () => {
-      const url = readInstanceInfo()?.url ?? `http://localhost:${options.port ?? ""}`;
+  app.post(ROUTES.portableWindow, async (c) => {
+    // Optional `path` opens the window on a specific in-app view rather than the
+    // dashboard root (the desktop-shortcut launcher passes "/?process=<id>" to get
+    // the single-process focus view). Constrained to a same-origin relative path
+    // beginning with "/" and carrying no "//" authority, so a caller can never
+    // redirect this window at an arbitrary external origin.
+    const body = await readBody(c);
+    const rel = typeof body.path === "string" && /^\/(?!\/)/.test(body.path) ? body.path : "";
+    return guard(c, async () => {
+      const base = readInstanceInfo()?.url ?? `http://localhost:${options.port ?? ""}`;
+      const url = `${base}${rel}`;
       // Dedicated profile so Chromium remembers the app window's size/position across
       // launches instead of sharing (and fighting over) the user's main browser profile.
       // Family convention: <configDir>/portable-profile, a sibling of runtime.json — the
@@ -271,8 +284,8 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
       const profileDir = path.join(path.dirname(instanceFilePath()), "portable-profile");
       const result = await openPortableWindow(url, { profileDir });
       return c.json(result);
-    }),
-  );
+    });
+  });
 
   // ---- error log ----
   app.get(ROUTES.errors, (c) => c.json(manager.listErrors()));

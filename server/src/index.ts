@@ -25,6 +25,28 @@ import {
 import { initFileLogging } from "./log-file.mjs";
 import { dataDir } from "./data-dir";
 
+// ---------------------------------------------------------------------------
+// CLI dispatch — must stay the FIRST side effect in this file.
+//
+// scripts/build.ts compiles THIS module into dist/devwebui.exe, so without this
+// branch the shipped binary could only ever boot the daemon: a machine with the
+// portable exe (no repo, no Bun) would have no CLI at all, and a desktop shortcut
+// would have nothing to invoke. Any argv beyond the program name is handed to the
+// CLI, which exits without ever starting a server.
+//
+// A bare launch falls through to the daemon below, unchanged — and every existing
+// launcher is bare: the tray, dev.ts, and the auto-update relaunch all respawn with
+// `process.argv.slice(1)`, which carries no verb (index.ts:~169).
+//
+// Ordering matters: this sits above initFileLogging so a one-shot CLI invocation
+// doesn't tee its output into the long-running daemon's log file.
+// ---------------------------------------------------------------------------
+if (process.argv.length > 2) {
+  const { run } = await import("./cli");
+  await run(process.argv.slice(2));
+  process.exit(process.exitCode ?? 0);
+}
+
 // Persist console output to <CONFIG_DIR>/logs/daemon.log BEFORE anything else can throw, so
 // the crash reason logged just below actually survives the process (the tray runs us with a
 // hidden console, so without this the output would vanish). Best-effort; never throws. The

@@ -133,7 +133,7 @@ Save the result as `<repo-name>.devwebui` in the repo root. Then in DevWebUI cli
 
 DevWebUI exposes an MCP server — a thin stdio client over the running daemon, so the GUI and
 agents share one state. Register it as shown in the README's
-[MCP section](README.md#drive-it-from-an-ai-agent-mcp), then use the **29 tools**:
+[MCP section](README.md#drive-it-from-an-ai-agent-mcp), then use the **31 tools**:
 
 **Projects**
 
@@ -162,6 +162,12 @@ agents share one state. Register it as shown in the README's
 - `enable_process` / `disable_process` — turn one process on/off and start/stop it; persists across restarts.
 - `free_port` — free a process's declared port (stops a managed holder cleanly; `confirm:true` also kills external owners).
 - `take_over_autostart` — retire a repo's external dev-server auto-start (VS Code `tasks.json` `runOn:folderOpen`, the Vite extension's `vite.autoStart`) so DevWebUI is the sole launcher. Backs up each edited file first. Pass the project folder (absolute path).
+
+**Desktop shortcuts (Windows)**
+
+- `create_process_shortcut` — put a `.lnk` on the user's Desktop that starts ONE process later without the dashboard: double-clicking boots the daemon if needed, loads the project if needed, starts the process (plus its `links` group and the project's companions) and opens a focused single-process window with a Stop button.
+- `create_project_shortcut` — the same for every process in a project; opens the dashboard rather than a single-process window.
+- Both return `{ ok: true, path }`, or `{ ok: false, reason }` on a non-Windows host (`unsupported-platform`) — a reported outcome, not an error.
 
 **Logs, errors & diagnostics**
 

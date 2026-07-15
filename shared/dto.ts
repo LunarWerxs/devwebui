@@ -314,3 +314,23 @@ export interface ErrorEvent {
   firstSeen: number;
   lastSeen: number;
 }
+
+// ---- desktop shortcuts (Windows) -------------------------------------------
+
+/** Why {@link ShortcutResult} came back unsuccessful. */
+export type ShortcutFailure =
+  /** Shortcut creation is Windows-only; macOS/Linux get this rather than a throw. */
+  | "unsupported-platform"
+  /** A path or id carried a character that cannot be embedded in a .lnk safely. */
+  | "bad-input"
+  /** The PowerShell that builds the .lnk refused, timed out, or is unavailable. */
+  | "powershell-failed";
+
+/**
+ * Outcome of creating a desktop shortcut (server/src/shortcuts.ts). Failures come back
+ * at HTTP 200 as `{ ok: false }` rather than as an error status: none of them mean the
+ * request was malformed, and the GUI reports them as a message instead of a red failure.
+ */
+export type ShortcutResult =
+  | { ok: true; path: string }
+  | { ok: false; reason: ShortcutFailure; detail?: string };

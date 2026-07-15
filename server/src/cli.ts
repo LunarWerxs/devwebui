@@ -19,21 +19,30 @@
  *   devwebui enable-process  <id|name>
  *   devwebui disable-process <id|name>
  *   devwebui start-all | stop-all              start / stop every managed process
+ *   devwebui open-process <file> <id>          desktop-shortcut launcher: boot+load+start+focus
+ *   devwebui open-project <file>               desktop-shortcut launcher for a whole codebase
  *   devwebui mcp                               run the stdio MCP server for AI agents
  *
  * Connection resolution matches mcp.ts: DEVWEBUI_URL > DEVWEBUI_PORT > ~/.devwebui/runtime.json
  * pointer > default port. Bin entry is wired in package.json ("bin": { "devwebui": ... }).
+ *
+ * Reachable two ways: as the `devwebui` bin from a checkout, and — since index.ts delegates
+ * any verb-bearing argv here — as `devwebui.exe <verb>` from the compiled binary, which is
+ * what lets a desktop .lnk drive a machine that has no repo and no Bun installed.
  */
 import { spawn } from "node:child_process";
+import { closeSync, mkdirSync, openSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ROUTES } from "../../shared/routes";
 import { daemonUrl } from "../../shared/constants";
+import { dataDir } from "./data-dir";
 import { findLiveInstance, readInstanceInfo, type InstanceInfo } from "./instance";
+import { daemonLaunchVector, isCompiledBinary } from "./launch-vector";
+import { projectIdFromPath } from "./projects/file-store";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", ".."); // server/src/cli.ts → repo root
-const INDEX_TS = path.join(REPO_ROOT, "server", "src", "index.ts");
 
 // ── tiny arg parser (positionals + --flags; --key=val or --key val or bare boolean) ──────────
 interface Args {
@@ -73,11 +82,131 @@ function base(): string {
   return readInstanceInfo()?.url ?? daemonUrl();
 }
 
+/**
+ * Every daemon call is bounded. Without a timeout a request to a host that accepts the
+ * connection but never answers hangs forever — and the desktop-shortcut launcher runs
+ * HIDDEN (wscript, no console), so that hang would be an invisible, silent process the
+ * user can only find in Task Manager. Reachable in practice: `base()` prefers a
+ * DEVWEBUI_PORT/DEVWEBUI_URL override over the instance pointer, so a stale value in the
+ * environment points every call at the wrong place. Failing loudly after 20s beats
+ * hanging quietly forever.
+ */
+const API_TIMEOUT_MS = 20_000;
+
 async function api<T = unknown>(pathname: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${base()}${pathname}`, init);
+  const url = `${base()}${pathname}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, signal: AbortSignal.timeout(API_TIMEOUT_MS) });
+  } catch (e) {
+    const reason = (e as Error).name === "TimeoutError" ? "timed out" : (e as Error).message;
+    throw new Error(`could not reach the DevWebUI daemon at ${url} (${reason})`);
+  }
   const text = await res.text();
   if (!res.ok) throw new Error(`daemon ${res.status}: ${text || res.statusText}`);
   return (text ? JSON.parse(text) : {}) as T;
+}
+
+/** RequestInit for a JSON POST. */
+const jsonPost = (body: unknown): RequestInit => ({
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify(body),
+});
+
+/**
+ * Working directory for a spawned daemon. A checkout runs from the repo root; the
+ * compiled binary has no repo (REPO_ROOT resolves into Bun's virtual filesystem and
+ * does not exist on disk), and spawn() throws outright on a missing cwd — so fall
+ * back to the directory the exe actually lives in.
+ */
+function daemonCwd(): string {
+  return isCompiledBinary() ? path.dirname(process.execPath) : REPO_ROOT;
+}
+
+/** Poll until a daemon answers /api/health, or the deadline passes. */
+async function awaitLive(timeoutMs: number): Promise<InstanceInfo | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const info = await findLiveInstance(500);
+    if (info) return info;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return null;
+}
+
+/**
+ * Cold-boot the daemon, but at most once across CONCURRENT launchers.
+ *
+ * Desktop shortcuts make this matter: the launcher is silent by design, so an impatient
+ * double-double-click fires two `open-process` processes ~200ms apart. Both probe, both
+ * see no daemon (index.ts's own guard can't help — it only rejects a second instance
+ * once the FIRST has written runtime.json, which takes ~2s), both spawn, and the loser
+ * hops to another port. Two daemons then disagree about which is "the" instance.
+ *
+ * `openSync(..., "wx")` is an atomic create-exclusive: exactly one launcher wins it and
+ * boots; the rest wait for that boot instead of racing it. A lock left behind by a
+ * crashed launcher goes stale and is reclaimed rather than wedging shortcuts forever.
+ */
+const BOOT_LOCK_STALE_MS = 60_000;
+
+async function bootDaemonShared(env: NodeJS.ProcessEnv): Promise<InstanceInfo | null> {
+  const lockFile = path.join(dataDir(), "boot.lock");
+  mkdirSync(dataDir(), { recursive: true });
+
+  let fd: number;
+  try {
+    fd = openSync(lockFile, "wx");
+  } catch {
+    // Someone else holds it. If it's stale, take it over; otherwise wait for their boot.
+    let stale = false;
+    try {
+      stale = Date.now() - statSync(lockFile).mtimeMs > BOOT_LOCK_STALE_MS;
+    } catch {
+      stale = true; // vanished between the open and the stat — the holder finished
+    }
+    if (!stale) {
+      const live = await awaitLive(25_000);
+      if (live) return live;
+    }
+    try {
+      unlinkSync(lockFile);
+    } catch {
+      /* another launcher cleaned up first */
+    }
+    return bootDaemonDetached(env);
+  }
+
+  try {
+    return await bootDaemonDetached(env);
+  } finally {
+    try {
+      closeSync(fd);
+      unlinkSync(lockFile);
+    } catch {
+      /* best-effort; a leftover lock goes stale and is reclaimed above */
+    }
+  }
+}
+
+/**
+ * Spawn this build's daemon detached and wait until it answers /api/health.
+ * Resolves null on timeout. Callers that might race a sibling launcher should go
+ * through {@link bootDaemonShared} instead.
+ */
+async function bootDaemonDetached(
+  env: NodeJS.ProcessEnv,
+  timeoutMs = 20_000,
+): Promise<InstanceInfo | null> {
+  const [exe, ...rest] = daemonLaunchVector();
+  const child = spawn(exe!, rest, {
+    cwd: daemonCwd(),
+    env,
+    stdio: "ignore",
+    detached: true,
+  });
+  child.unref();
+  return awaitLive(timeoutMs);
 }
 
 /** Require a live daemon and return its instance info, else a friendly error. */
@@ -153,12 +282,15 @@ async function startCmd(args: Args): Promise<void> {
   }
   const env = { ...process.env };
   if (typeof args.port === "string") env.DEVWEBUI_PORT = args.port;
-  // process.execPath (the real bun binary) rather than "bun" — on Windows "bun" may be a .cmd
-  // shim CreateProcess can't spawn directly. Same reason as server/src/dev.ts.
+  // The launch vector is process.execPath + the right arguments for THIS build: the real
+  // bun binary plus index.ts from a checkout (never the string "bun" — on Windows that may
+  // be a .cmd shim CreateProcess can't spawn directly; same reason as server/src/dev.ts),
+  // or the compiled exe alone, which has no index.ts to point at.
+  const [exe, ...rest] = daemonLaunchVector();
 
   // Foreground: run the daemon attached (inherit stdio + await) — behaves like `bun server/src/index.ts`.
   if (args.foreground) {
-    const child = spawn(process.execPath, [INDEX_TS], { cwd: REPO_ROOT, env, stdio: "inherit" });
+    const child = spawn(exe!, rest, { cwd: daemonCwd(), env, stdio: "inherit" });
     await new Promise<void>((resolve) => child.on("exit", () => resolve()));
     return;
   }
@@ -166,26 +298,12 @@ async function startCmd(args: Args): Promise<void> {
   // Detached (default): spawn the daemon in the background (detached + unref so it outlives this
   // CLI process), then poll until it answers /api/health and print the URL it actually bound (it
   // may have hopped off a busy port).
-  const child = spawn(process.execPath, [INDEX_TS], {
-    cwd: REPO_ROOT,
-    env,
-    stdio: "ignore",
-    detached: true,
-  });
-  child.unref();
-
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const info = await findLiveInstance(500);
-    if (info) {
-      console.log(`DevWebUI daemon started  →  ${info.url}  (pid ${info.pid})`);
-      return;
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(
-    "the daemon didn't come up within 20s — try `devwebui start --foreground` to see why.",
-  );
+  const info = await bootDaemonDetached(env);
+  if (!info)
+    throw new Error(
+      "the daemon didn't come up within 20s — try `devwebui start --foreground` to see why.",
+    );
+  console.log(`DevWebUI daemon started  →  ${info.url}  (pid ${info.pid})`);
 }
 
 async function stopCmd(): Promise<void> {
@@ -248,6 +366,74 @@ async function bulkCmd(route: string, label: string): Promise<void> {
   console.log(label);
 }
 
+/**
+ * Desktop-shortcut entry point (`server/src/shortcuts.ts` bakes this into every .lnk).
+ *
+ * Identity arrives as (.devwebui absolute path + localId) rather than a global process
+ * id so the shortcut keeps working even if the project has since been removed from
+ * DevWebUI — we just load it again. The id is recomputed locally with the very same
+ * `projectIdFromPath` the daemon uses, so the two can never disagree.
+ *
+ * The load step is guarded, and that guard is the whole point: POSTing projects/load
+ * for an ALREADY-loaded project is not a no-op, it's a hard reload that purges every
+ * entry — killing running children — and re-autostarts them (manager/projects.ts
+ * addProject). Loading unconditionally here would mean one shortcut click restarted
+ * every server in that repo. Match on id, which IS the normalized path hash.
+ */
+async function openCmd(kind: "process" | "project", args: Args): Promise<void> {
+  const [filePath, localId] = args._;
+  const usage = `Usage: devwebui open-${kind} <path-to .devwebui>${
+    kind === "process" ? " <processId>" : ""
+  }`;
+  if (!filePath) throw new UsageError(usage);
+  if (kind === "process" && !localId) throw new UsageError(usage);
+
+  const abs = path.resolve(filePath);
+  const projectId = projectIdFromPath(abs);
+
+  // 1. A daemon must exist — it's the supervisor, and a shortcut is often the first
+  //    thing touched after a reboot. Cold-boot it rather than failing, under the shared
+  //    lock so an impatient double-double-click can't race two daemons into existence.
+  let live = await findLiveInstance();
+  if (!live) live = await bootDaemonShared({ ...process.env });
+  if (!live)
+    throw new Error(
+      "DevWebUI's daemon didn't start within 20s — run `devwebui start --foreground` to see why.",
+    );
+
+  // 2. Register the project only if it isn't already (see the hard-reload note above).
+  const projects = await api<ProjectView[]>(ROUTES.projects);
+  if (!projects.some((p) => p.id === projectId)) {
+    await api(ROUTES.projectsLoad, jsonPost({ path: abs }));
+  }
+
+  // 3. Start. For a process this is the ordinary start action, so linked siblings and
+  //    project companions come up with it exactly as they do from the GUI; starting an
+  //    already-running process is a no-op (lifecycle.ts start()), which is what makes
+  //    double-clicking the shortcut twice harmless.
+  if (kind === "project") {
+    await api(ROUTES.projectAction.build(projectId, "start"), { method: "POST" });
+  } else {
+    await api(ROUTES.processAction.build(`${projectId}.${localId}`, "start"), {
+      method: "POST",
+    });
+  }
+
+  // 4. Show something. A process shortcut opens the focused single-process view (its
+  //    Stop button is the whole reason the window exists); a project shortcut has no
+  //    single subject, so it opens the dashboard. Best-effort: a machine with no
+  //    Chromium still started the server, which is the point — don't fail the launch
+  //    over a missing browser.
+  const view =
+    kind === "project" ? "/" : `/?process=${encodeURIComponent(`${projectId}.${localId}`)}`;
+  try {
+    await api(ROUTES.portableWindow, jsonPost({ path: view }));
+  } catch {
+    /* the server is up; the window is a convenience */
+  }
+  console.log(kind === "project" ? `Started project ${projectId}.` : `Started ${localId}.`);
+}
+
 function printHelp(): void {
   console.log(`devwebui — run & drive DevWebUI from the command line
 
@@ -265,6 +451,12 @@ Drive a running daemon:
   devwebui disable-process <id|name>         Disable a process
   devwebui start-all | stop-all              Start / stop every managed process
   devwebui mcp                               Run the stdio MCP server (for AI agents)
+
+Desktop shortcuts (what a .lnk from "Add desktop shortcut" runs):
+  devwebui open-process <file.devwebui> <id> Boot the daemon if needed, load the project if
+                                             needed, start that process (+ its linked group)
+                                             and open its focused window
+  devwebui open-project <file.devwebui>      Same, for every process in the project
 
 Connection: DEVWEBUI_URL / DEVWEBUI_PORT override the daemon location.`);
 }
@@ -309,6 +501,12 @@ export async function main(argv: string[]): Promise<void> {
     case "stop-all":
       await bulkCmd(ROUTES.stopAll, "Stopped all processes.");
       break;
+    case "open-process":
+      await openCmd("process", args);
+      break;
+    case "open-project":
+      await openCmd("project", args);
+      break;
     case "mcp":
       // Run the stdio MCP server IN THIS PROCESS (it connects StdioServerTransport on import),
       // so `devwebui mcp` is exactly what a tool-calling agent spawns. Emits only JSON-RPC on stdout.
@@ -326,11 +524,21 @@ export async function main(argv: string[]): Promise<void> {
   }
 }
 
-// Run when invoked as the bin/entrypoint (not when imported by a test).
-if (import.meta.main) {
-  main(process.argv.slice(2)).catch((err: unknown) => {
+/**
+ * {@link main} plus the standard error formatting and exit code. Both entry points —
+ * the `devwebui` bin below, and index.ts's argv dispatch inside the compiled exe —
+ * go through this so they behave identically instead of each rolling their own catch.
+ */
+export async function run(argv: string[]): Promise<void> {
+  try {
+    await main(argv);
+  } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(err instanceof UsageError ? msg : `Error: ${msg}`);
     process.exitCode = 1;
-  });
+  }
 }
+
+// Run when invoked as the bin/entrypoint (not when imported by a test, and not when
+// index.ts imports this to dispatch a verb — there import.meta.main belongs to index).
+if (import.meta.main) void run(process.argv.slice(2));

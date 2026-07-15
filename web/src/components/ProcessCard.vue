@@ -2,10 +2,12 @@
 import { computed } from "vue";
 import {
   Cpu,
+  EllipsisVertical,
   ExternalLink,
   Link2,
   Magnet,
   MemoryStick,
+  MonitorDown,
   Pencil,
   Play,
   RotateCw,
@@ -17,6 +19,12 @@ import {
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import Hint from "./Hint.vue";
 import IconButton from "./IconButton.vue";
@@ -26,6 +34,7 @@ import { useAppStore } from "@/store";
 import { useFreePortAction } from "@/lib/freePort";
 import { useGroupActionToast } from "@/lib/groupToast";
 import { useLastCrashHint } from "@/lib/lastCrash";
+import { useShortcutAction } from "@/lib/shortcut";
 import { useRunAction } from "@/lib/useAction";
 import { useTooltipConfig } from "@/lib/tooltip-config";
 import { commandEngine, formatBytes, formatUptime, processUrl } from "@/lib/format";
@@ -37,6 +46,7 @@ import { useI18n } from "vue-i18n";
 const { t } = useI18n({ useScope: "global" });
 const freePortAction = useFreePortAction();
 const showLastCrashHint = useLastCrashHint();
+const { addProcessShortcut } = useShortcutAction();
 const { enabled: tooltipsEnabled } = useTooltipConfig();
 
 const props = defineProps<{ process: ProcessView }>();
@@ -246,6 +256,21 @@ function onStop() {
         <Button variant="outline" size="sm" class="ml-auto" @click="emit('logs')">
           <ScrollText class="size-4" /> {{ t("processCard.logs") }}
         </Button>
+        <!-- Overflow for actions that don't earn a permanent button. The card's other
+             actions are inline icons, so this carries only what ProcessTable's own
+             overflow adds beyond them — keeping the two layouts at feature parity. -->
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button variant="ghost" size="icon-sm" :aria-label="t('processCard.moreActions')">
+              <EllipsisVertical class="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" class="w-56">
+            <DropdownMenuItem @select="addProcessShortcut(process.id)">
+              <MonitorDown class="size-4" /> {{ t("shortcut.addToDesktop") }}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   </Card>

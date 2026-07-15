@@ -12,6 +12,7 @@ import {
   Link2,
   Magnet,
   MemoryStick,
+  MonitorDown,
   Pencil,
   Play,
   Power,
@@ -48,6 +49,7 @@ import { useAppStore } from "@/store";
 import { useFreePortAction } from "@/lib/freePort";
 import { useGroupActionToast } from "@/lib/groupToast";
 import { useLastCrashHint } from "@/lib/lastCrash";
+import { useShortcutAction } from "@/lib/shortcut";
 import { useRunAction } from "@/lib/useAction";
 import { useTooltipConfig } from "@/lib/tooltip-config";
 import { commandEngine, formatBytes, formatUptime, processUrl } from "@/lib/format";
@@ -58,6 +60,7 @@ import type { ProcessView, SortKey } from "@/types";
 const { t } = useI18n({ useScope: "global" });
 const freePortAction = useFreePortAction();
 const showLastCrashHint = useLastCrashHint();
+const { addProcessShortcut } = useShortcutAction();
 const { enabled: tooltipsEnabled } = useTooltipConfig();
 
 const props = defineProps<{ processes: ProcessView[] }>();
@@ -353,6 +356,10 @@ function onStop(p: ProcessView) {
                   </DropdownMenuItem>
                   <DropdownMenuItem @select="emit('logs', p)">
                     <ScrollText class="size-4" /> {{ t("processTable.actionLogs") }}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem @select="addProcessShortcut(p.id)">
+                    <MonitorDown class="size-4" /> {{ t("shortcut.addToDesktop") }}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
