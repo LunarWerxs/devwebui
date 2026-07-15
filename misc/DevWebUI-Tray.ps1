@@ -4,9 +4,10 @@
 # else -- mutex/tray lifecycle, watchdog, rebuild/restart worker, hide-tray live-sync,
 # open path, full-shutdown sentinel -- lives in the shared engine.
 #
-# Launch it via DevWebUI.vbs (which sets the port) so there's no console flash. The
-# daemon serves the built GUI + API on one port. The shortcut launches FAST with the
-# existing build; use the tray's "Rebuild & Restart" to rebuild the GUI from source.
+# Launch it via Tray-Launch.vbs (which auto-discovers the sibling *-Tray.ps1 and runs it
+# hidden) so there's no console flash; the port comes from this file's own param() default,
+# not the .vbs. The daemon serves the built GUI + API on one port. The shortcut launches
+# FAST with the existing build; use the tray's "Rebuild & Restart" to rebuild from source.
 param([int]$Port = 4000, [switch]$SelfTest)
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
