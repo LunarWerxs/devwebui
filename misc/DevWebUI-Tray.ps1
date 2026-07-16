@@ -71,6 +71,17 @@ $TrayConfig = @{
   # daemon, leave it running at Quit) rather than treated as an orphan to refuse.
   OnStrayDaemon        = "attach"
 
+  # Portable-window sizing (engine: Open-AppUi). First-run size = the daemon's measured
+  # DASHBOARD_WINDOW_SIZE (shared/constants.ts — the layout hard-caps content at
+  # --container-max = 800px, so 840 outer; 760 tall fits the top bar + 13 process rows),
+  # so a COLD tray start (tray boots the daemon and opens the window itself, before the
+  # daemon's own POST /api/portable-window path exists) stops opening a never-seen
+  # profile at ~the whole work area. The hint opt-in is safe here because this web build
+  # applies ?window-size via resizeTo (web/src/lib/window-size-hint.ts) — the only fix
+  # that reaches a forwarded launch (a window already open on the profile).
+  PortableWindowSize     = @{ Width = 840; Height = 760 }
+  PortableWindowSizeHint = $true
+
   SelfTestMarker       = "DEVWEBUI_TRAY_SELFTEST"
   MenuOpenLabel        = "Open DevWebUI"
   MutexName            = "DevWebUITrayHost"
