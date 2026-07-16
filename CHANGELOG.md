@@ -24,9 +24,39 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `open-project`, are what the shortcuts run.
 
 ### Fixed
+- **A managed server no longer pops a console window.** Every dev server is spawned through
+  `cmd` (`shell: true`) but without `windowsHide`, so whether a console appeared depended on the
+  console the daemon itself happened to own — invisible under the tray (which starts the daemon
+  with `CreateNoWindow`, and children inherit that headless console), but a desktop shortcut boots
+  the daemon detached with *no* console, and Windows then gave each dev server a brand-new console
+  of its own. With Windows Terminal set as the default terminal that surfaced as a real window that
+  stayed up for the life of the server. The spawn now sets `windowsHide` so the result is the same
+  on every launch path. `cli.ts`'s daemon boot states it too, so "no window" survives someone
+  dropping `detached`.
+- **The shortcut's focus window opens small, and remembers the size you give it.** It never passed
+  a size, and Chromium's default for a window it has never seen is roughly the whole work area
+  (~1905x2092 on a 4K display) — so "a small focused window" was neither small nor sized. It now
+  opens at a first-run size measured to fit the card exactly, and yields to your own resize
+  afterwards (Chromium persists a manual resize but not a `--window-size`, which is what makes
+  "small by default, yours once you touch it" work rather than fighting you every launch).
+- **The focus window reads as a launcher, not a shrunken dashboard.** It reused the dashboard's
+  full-size ProcessCard, so a small window just clipped a big card: label-above-value metrics
+  three rows tall, plus star / enable / edit / engine-chip / overflow controls that a launcher has
+  no use for. ProcessCard gained a `compact` density (the same component — status, logs, metrics
+  and Start/Stop must never fork into a launcher copy that drifts) which tightens the type and
+  spacing, folds the metrics into one icon+value line, and drops the config-only affordances. The
+  window hugs the result at 440x220 instead of 520x300.
 - **`devwebui start` from the compiled binary.** It hardcoded a spawn of `bun server/src/index.ts`,
   a path that doesn't exist outside a checkout. Daemon launches now resolve the right vector for the
   build they're running in.
+
+### Changed
+- **The focus view moved from `/?process=<id>` to `/focus/<id>`.** Chromium keys a saved app-window
+  placement by host + path only — the query string isn't part of it — so every focus window and the
+  dashboard shared one `localhost_/` geometry slot: no focus window could keep its own size, and
+  resizing one silently resized the others. A path per process gives each window its own remembered
+  geometry. Nothing on disk needs migrating (a `.lnk` stores `open-process <file> <id>`, never a
+  URL), and the old query form still renders for a window or bookmark left on it.
 
 ## [0.4.0] - 2026-07-13
 

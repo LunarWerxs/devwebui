@@ -206,6 +206,17 @@ export class ManagerWithLifecycle extends ManagerWithMonitoring {
         cwd: e.def.cwd,
         env: { ...process.env, ...e.def.env },
         shell: true,
+        // shell:true runs the command under `cmd /d /s /c`, a console program. Whether that
+        // pops a VISIBLE console depends on the console the daemon itself owns, so it only
+        // misbehaves on some launch paths: under the tray the daemon is started with
+        // CreateNoWindow and children inherit that headless console, but a desktop shortcut
+        // boots the daemon detached (cli.ts, DETACHED_PROCESS) with NO console at all — and
+        // then Windows gives each managed dev server a brand-new console of its own, which
+        // Windows Terminal (when set as the default terminal) hosts as a real window that
+        // stays up for the life of the server. windowsHide (CREATE_NO_WINDOW) makes the
+        // outcome the same on every path. Safe with the piped stdio below: the console is
+        // only ever a window, never where our logs come from.
+        windowsHide: true,
       });
     } catch (err) {
       this.handleSpawnError(e, null, err);

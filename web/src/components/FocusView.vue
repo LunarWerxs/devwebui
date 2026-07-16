@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// Single-process view: what a desktop shortcut opens (`/?process=<id>`), instead of
-// the whole dashboard. It is deliberately NOT a new way to render a process — it's the
+// Single-process view: what a desktop shortcut opens (`/focus/<id>`), instead of the
+// whole dashboard. It is deliberately NOT a new way to render a process — it's the
 // ordinary ProcessCard with the shell stripped away, so status, logs, links, metrics,
 // Start/Stop and the SSE wiring are all the same code the dashboard uses and cannot
 // drift from it.
 //
-// Reading the id from the query string rather than adding a router: the app has no
-// routes, and one query param does not justify inventing them.
+// App.vue parses the id out of the path and passes it in; still no router, because this
+// is not a navigable route — the window is launched directly onto this one URL.
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { storeToRefs } from "pinia";
@@ -17,11 +17,13 @@ import ProcessCard from "./ProcessCard.vue";
 import LogDrawer from "./LogDrawer.vue";
 import CloseFocusDialog from "./CloseFocusDialog.vue";
 import { useAppStore } from "@/store";
+import { useTooltipConfig } from "@/lib/tooltip-config";
 import type { ProcessView } from "@/types";
 
 const props = defineProps<{ processId: string }>();
 
 const { t } = useI18n({ useScope: "global" });
+const { enabled: tooltipsEnabled } = useTooltipConfig();
 const store = useAppStore();
 const { allProcesses, connected } = storeToRefs(store);
 
@@ -81,14 +83,14 @@ onMounted(async () => {
 
 <template>
   <div class="safe-bottom flex min-h-dvh flex-col">
-    <header class="flex items-center gap-2 border-b px-4 py-2">
+    <header class="flex items-center gap-2 border-b px-2.5 py-1.5">
       <!-- Same shape as the dashboard's TopBar indicator, and for the same reason: the
            dot alone encodes state in colour only, so it pairs with the Live/Offline
            text and reuses TopBar's own keys rather than inventing a second vocabulary. -->
       <Hint :label="connected ? t('header.statusTooltip.live') : t('header.statusTooltip.offline')">
-        <div class="flex items-center gap-1.5 text-sm">
+        <div class="flex items-center gap-1.5 text-xs">
           <span
-            class="size-2 rounded-full"
+            class="size-1.5 rounded-full"
             :class="connected ? 'bg-success' : 'bg-destructive'"
           />
           <span class="font-medium" :class="connected ? 'text-success' : 'text-destructive'">
@@ -96,22 +98,28 @@ onMounted(async () => {
           </span>
         </div>
       </Hint>
-      <span class="truncate text-sm font-medium">{{ process?.projectName ?? "DevWebUI" }}</span>
+      <span class="truncate text-xs font-medium text-muted-foreground">
+        {{ process?.projectName ?? "DevWebUI" }}
+      </span>
+      <!-- Icon-only here: "Open dashboard" is the escape hatch, not the point of the
+           window, and the label cost more width than it earned at this size. -->
       <Button
         variant="ghost"
-        size="sm"
+        size="icon-xs"
         class="ml-auto"
+        :title="tooltipsEnabled ? t('focus.openDashboard') : undefined"
         :aria-label="t('focus.openDashboard')"
         @click="openDashboard"
       >
-        <LayoutDashboard class="size-4" /> {{ t("focus.openDashboard") }}
+        <LayoutDashboard class="size-3" />
       </Button>
     </header>
 
-    <main class="flex-1 p-4">
+    <main class="flex-1 p-2.5">
       <ProcessCard
         v-if="process"
         :process="process"
+        compact
         @logs="drawerOpen = true"
         @edit="openDashboard"
         @errors="openDashboard"
@@ -134,8 +142,8 @@ onMounted(async () => {
       </div>
     </main>
 
-    <footer class="flex items-center justify-end gap-2 border-t px-4 py-2">
-      <Button variant="outline" size="sm" @click="requestClose">{{ t("focus.close") }}</Button>
+    <footer class="flex items-center justify-end gap-2 border-t px-2.5 py-1.5">
+      <Button variant="outline" size="xs" @click="requestClose">{{ t("focus.close") }}</Button>
     </footer>
 
     <LogDrawer v-if="process" v-model:open="drawerOpen" :process-id="process.id" />

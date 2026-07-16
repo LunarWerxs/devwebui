@@ -19,7 +19,7 @@
  * Runtime-agnostic (Bun + Node). Synced from the shared kit, do not edit in an
  * app; the `.d.mts` sibling types the import for the TypeScript apps.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, delimiter } from "node:path";
 import { spawn } from "node:child_process";
 import { buildDetachedSpawn } from "./detached-spawn.mjs";
@@ -90,6 +90,62 @@ export function buildPortableSpawn(platform, browserPath, browserArgs) {
 }
 
 /**
+ * The key Chromium files a saved app-window placement under, mirroring its own
+ * `GenerateApplicationNameFromURL` (`host + "_" + path`).
+ *
+ * Two omissions matter and are NOT oversights on our part — they are Chromium's:
+ * the PORT and the QUERY STRING are both absent from the key. So every window this
+ * daemon opens on the same path shares one saved geometry, and two windows that
+ * differ only by `?foo=` are the same window as far as placement is concerned. A
+ * caller that wants per-window geometry must vary the PATH, not the query.
+ * (Verified against Edge 150 on 2026-07-15: `--app=http://localhost:4000/` stores
+ * `browser.app_window_placement["localhost_/"]`.)
+ *
+ * Returns null for a URL that won't parse.
+ */
+export function appWindowPlacementKey(url) {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}_${u.pathname}`; // hostname, not host: Chromium's key has no port
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Has Chromium already stored bounds for this window in `profileDir`? True only for a
+ * real saved placement, so callers can tell "the user has sized this window" apart from
+ * "this window has never been opened".
+ *
+ * Chromium writes the placement when the user MOVES or RESIZES the window — never for a
+ * size we imposed with `--window-size` (verified 2026-07-15). That asymmetry is exactly
+ * what makes {@link openPortableWindow}'s `initialSize` stable rather than sticky: we
+ * keep supplying it until the user overrides it by hand, and from then on it's theirs.
+ *
+ * Any failure (no profile, no Preferences yet, unreadable/!JSON) reports false — i.e.
+ * "nothing remembered", which makes a fresh profile take the caller's initial size.
+ */
+export function hasRememberedBounds(profileDir, url) {
+  const key = appWindowPlacementKey(url);
+  if (!profileDir || !key) return false;
+  try {
+    const prefs = JSON.parse(readFileSync(join(profileDir, "Default", "Preferences"), "utf8"));
+    return Boolean(prefs?.browser?.app_window_placement?.[key]);
+  } catch {
+    return false;
+  }
+}
+
+/** `--window-size=W,H` for a `{ width, height }`, or null when it isn't a usable size. */
+function windowSizeArg(size) {
+  if (!size) return null;
+  const w = Math.round(Number(size.width));
+  const h = Math.round(Number(size.height));
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+  return `--window-size=${w},${h}`;
+}
+
+/**
  * Open `url` in a chromeless app window. Resolves to `{ ok: true, browser }` once the
  * window process has spawned, or `{ ok: false, reason: "no-browser" | "spawn-failed" }`.
  * Best-effort by design: callers surface the failure to the user (toast / fallback to
@@ -103,6 +159,13 @@ export function buildPortableSpawn(platform, browserPath, browserArgs) {
  * is `<configDir>/portable-profile` (a sibling of runtime.json), and the PS tray
  * launchers derive the exact same path so both open paths share one profile. A dir that
  * cannot be created falls back to the default profile rather than failing the open.
+ *
+ * `opts.initialSize` ({ width, height }) is the size to open a window Chromium has NEVER
+ * seen — the first-run geometry. It is deliberately not applied once the user has sized
+ * the window themselves ({@link hasRememberedBounds}), because `--window-size` overrides
+ * a restored placement and would silently undo their resize on every launch. Omit it to
+ * accept Chromium's own default, which is roughly the whole work area — far too big for
+ * a small single-purpose window, which is the reason this option exists.
  */
 export function openPortableWindow(url, opts = {}) {
   const browser = resolveChromiumBrowser();
@@ -118,6 +181,8 @@ export function openPortableWindow(url, opts = {}) {
       /* unusable profile dir; open with the default profile instead */
     }
   }
+  const sizeArg = windowSizeArg(opts.initialSize);
+  if (sizeArg && !hasRememberedBounds(opts.profileDir, url)) args.push(sizeArg);
   args.push(`--app=${url}`);
   return new Promise((resolve) => {
     let settled = false;

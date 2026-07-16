@@ -35,7 +35,7 @@ import { closeSync, mkdirSync, openSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ROUTES } from "../../shared/routes";
-import { daemonUrl } from "../../shared/constants";
+import { daemonUrl, focusPath } from "../../shared/constants";
 import { dataDir } from "./data-dir";
 import { findLiveInstance, readInstanceInfo, type InstanceInfo } from "./instance";
 import { daemonLaunchVector, isCompiledBinary } from "./launch-vector";
@@ -204,6 +204,13 @@ async function bootDaemonDetached(
     env,
     stdio: "ignore",
     detached: true,
+    // The daemon is a console program (bun, or the console-subsystem devwebui.exe), and this
+    // is the path a desktop shortcut boots it through — so it must never surface a console.
+    // detached already implies DETACHED_PROCESS (no console inherited, none created), which
+    // makes this redundant today and CreateProcess ignores it alongside DETACHED_PROCESS;
+    // it's stated anyway so "no window" survives someone dropping `detached`, and to match
+    // the auto-update relaunch in index.ts, which spawns the same binary with all three.
+    windowsHide: true,
   });
   child.unref();
   return awaitLive(timeoutMs);
@@ -424,8 +431,7 @@ async function openCmd(kind: "process" | "project", args: Args): Promise<void> {
   //    single subject, so it opens the dashboard. Best-effort: a machine with no
   //    Chromium still started the server, which is the point — don't fail the launch
   //    over a missing browser.
-  const view =
-    kind === "project" ? "/" : `/?process=${encodeURIComponent(`${projectId}.${localId}`)}`;
+  const view = kind === "project" ? "/" : focusPath(`${projectId}.${localId}`);
   try {
     await api(ROUTES.portableWindow, jsonPost({ path: view }));
   } catch {

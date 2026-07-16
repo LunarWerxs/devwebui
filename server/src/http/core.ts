@@ -8,6 +8,7 @@ import { readSettings, writeSettings, type RuntimePref } from "../runtime";
 import { applyUpdate, checkForUpdate } from "../updater";
 import { setAutoUpdateEnabled, setAutoUpdateIntervalSecs } from "../auto-update";
 import { ROUTES } from "../../../shared/routes";
+import { FOCUS_PATH_PREFIX, FOCUS_WINDOW_SIZE } from "../../../shared/constants";
 import {
   instanceFilePath,
   readInstanceInfo,
@@ -267,7 +268,7 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
   // ---- portable window (chromeless app window instead of a browser tab) ----
   app.post(ROUTES.portableWindow, async (c) => {
     // Optional `path` opens the window on a specific in-app view rather than the
-    // dashboard root (the desktop-shortcut launcher passes "/?process=<id>" to get
+    // dashboard root (the desktop-shortcut launcher passes "/focus/<id>" to get
     // the single-process focus view). Constrained to a same-origin relative path
     // beginning with "/" and carrying no "//" authority, so a caller can never
     // redirect this window at an arbitrary external origin.
@@ -282,7 +283,13 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
       // PS tray derives the identical path from the same runtime.json location so both
       // open paths share one profile.
       const profileDir = path.join(path.dirname(instanceFilePath()), "portable-profile");
-      const result = await openPortableWindow(url, { profileDir });
+      // The focus view is a small single-process window, so give it a small first-run size
+      // — Chromium's default for a window it has never seen is close to the whole work
+      // area. Only the focus view gets one: the dashboard is a full UI and Chromium's
+      // default suits it. Either way this yields to the user's own resize once they make
+      // one (openPortableWindow checks the profile's saved placement).
+      const initialSize = rel.startsWith(FOCUS_PATH_PREFIX) ? FOCUS_WINDOW_SIZE : undefined;
+      const result = await openPortableWindow(url, { profileDir, initialSize });
       return c.json(result);
     });
   });

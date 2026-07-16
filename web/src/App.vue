@@ -2,6 +2,7 @@
 import { Toaster } from "vue-sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTheme } from "@/lib/theme";
+import { processIdFromFocusPath } from "../../shared/constants";
 import AppShell from "./AppShell.vue";
 import FocusView from "./components/FocusView.vue";
 
@@ -10,11 +11,18 @@ import FocusView from "./components/FocusView.vue";
 // 1:1 to vue-sonner's theme prop.
 const { mode } = useTheme();
 
-// `/?process=<id>` swaps the whole dashboard for the single-process focus view that a
+// `/focus/<id>` swaps the whole dashboard for the single-process focus view that a
 // desktop shortcut opens. Read once at startup rather than reactively: this app has no
 // router and this is not a navigable route — the window is launched directly onto it,
 // and "Open dashboard" is a full document navigation back to "/".
-const focusProcessId = new URLSearchParams(window.location.search).get("process");
+//
+// The legacy `/?process=<id>` form is still honoured: shortcuts don't encode the URL (the
+// .lnk only stores `open-process <file> <id>`, and the launcher builds the URL fresh), so
+// nothing on disk needs migrating — but a window left open across an update, or a
+// bookmark, can still be on the old URL.
+const focusProcessId =
+  processIdFromFocusPath(window.location.pathname) ??
+  new URLSearchParams(window.location.search).get("process");
 </script>
 
 <template>

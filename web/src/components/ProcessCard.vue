@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import {
+  Clock,
   Cpu,
   EllipsisVertical,
   ExternalLink,
@@ -49,8 +50,38 @@ const showLastCrashHint = useLastCrashHint();
 const { addProcessShortcut } = useShortcutAction();
 const { enabled: tooltipsEnabled } = useTooltipConfig();
 
-const props = defineProps<{ process: ProcessView }>();
+// `compact` is the LAUNCHER density, used by the focus window a desktop shortcut opens
+// (FocusView). That window exists to answer "is it up?" and to start/stop — it is not a
+// place to configure anything, so compact both tightens the density AND drops the
+// config-only affordances (star, enable switch, edit, engine chip, the add-to-desktop
+// overflow — you are already IN the thing the shortcut opened). It stays a prop on this
+// card rather than a second component on purpose: status/logs/links/metrics/Start/Stop
+// and the SSE wiring must never fork into a launcher copy that drifts from the dashboard.
+const props = withDefaults(defineProps<{ process: ProcessView; compact?: boolean }>(), {
+  compact: false,
+});
 const emit = defineEmits<{ logs: []; edit: []; errors: [] }>();
+
+// Every density difference lives here, so "compact" can never quietly become a different
+// LAYOUT — only a smaller one. Sizes are the kit's own scale (button xs/icon-xs), not
+// ad-hoc overrides.
+const d = computed(() =>
+  props.compact
+    ? {
+        body: "gap-2 p-2.5",
+        name: "text-sm",
+        btn: "xs" as const,
+        icon: "icon-xs" as const,
+        svg: "size-3",
+      }
+    : {
+        body: "gap-3 p-3.5",
+        name: "",
+        btn: "sm" as const,
+        icon: "icon-sm" as const,
+        svg: "size-4",
+      },
+);
 
 const store = useAppStore();
 const { errorCountByProcess, now, monitorResources, linkHost } = storeToRefs(store);
@@ -113,13 +144,15 @@ function onStop() {
     :class="process.enabled ? '' : 'opacity-60'"
   >
     <!-- Tightened (gap-3/p-3.5) since the command line moved into the engine chip —
-         keeps the two-wide grid dense without the cards feeling empty. -->
-    <div class="flex flex-col gap-3 p-3.5">
+         keeps the two-wide grid dense without the cards feeling empty. `compact` tightens
+         it further for the launcher window; see the `d` density tokens. -->
+    <div class="flex flex-col" :class="d.body">
       <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
             <span
-              class="size-2.5 shrink-0 rounded-full"
+              class="shrink-0 rounded-full"
+              :class="compact ? 'size-2' : 'size-2.5'"
               :style="{ background: process.color || 'var(--primary)' }"
             />
             <a
@@ -130,13 +163,13 @@ function onStop() {
               :title="tooltipsEnabled ? t('processCard.openUrl', { url: linkUrl }) : undefined"
               class="group inline-flex min-w-0 items-center gap-1 rounded font-semibold underline-offset-4 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <span class="truncate">{{ process.name }}</span>
+              <span class="truncate" :class="d.name">{{ process.name }}</span>
               <ExternalLink
                 class="size-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60 group-focus-visible:opacity-60"
                 aria-hidden="true"
               />
             </a>
-            <h3 v-else class="truncate font-semibold">{{ process.name }}</h3>
+            <h3 v-else class="truncate font-semibold" :class="d.name">{{ process.name }}</h3>
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-1.5">
@@ -159,7 +192,7 @@ function onStop() {
             </span>
           </Hint>
           <!-- Command, condensed to its engine; hover the chip for the full command (same as the table). -->
-          <Hint>
+          <Hint v-if="!compact">
             <Badge variant="outline" class="font-mono text-[11px] font-normal text-muted-foreground">
               {{ commandEngine(process.command) }}
             </Badge>
@@ -167,8 +200,12 @@ function onStop() {
               <code class="break-all">{{ process.command }}</code>
             </template>
           </Hint>
-          <Badge variant="outline" class="capitalize" :class="pill.badge">{{ pill.label }}</Badge>
+          <!-- Status is the one thing a launcher MUST show, so it survives compact. -->
+          <Badge variant="outline" class="capitalize" :class="[pill.badge, compact ? 'text-[0.625rem]' : '']">
+            {{ pill.label }}
+          </Badge>
           <IconButton
+            v-if="!compact"
             :tooltip="process.starred ? t('processCard.unstar') : t('processCard.star')"
             @click="store.toggleStar(process)"
           >
@@ -178,6 +215,7 @@ function onStop() {
             />
           </IconButton>
           <Switch
+            v-if="!compact"
             :model-value="process.enabled"
             :aria-label="process.enabled ? t('processCard.switchAriaLabelEnabled') : t('processCard.switchAriaLabelDisabled')"
             :title="
@@ -190,7 +228,33 @@ function onStop() {
         </div>
       </div>
 
-      <div class="grid gap-2 text-xs" :class="monitorResources ? 'grid-cols-3' : 'grid-cols-1'">
+      <!-- Compact: one thin line of icon+value. A launcher glances at these; it doesn't
+           study them, so the label-above-value grid (three rows tall) becomes three
+           labelled icons on one row. Same values, same i18n keys — now the tooltip. -->
+      <div
+        v-if="compact"
+        class="flex items-center gap-3 text-[0.625rem] tabular-nums text-muted-foreground"
+      >
+        <span class="flex items-center gap-1" :title="tooltipsEnabled ? t('processCard.uptime') : undefined">
+          <Clock class="size-2.5 shrink-0" aria-hidden="true" />{{ uptime }}
+        </span>
+        <span
+          v-if="monitorResources"
+          class="flex items-center gap-1"
+          :title="tooltipsEnabled ? t('processCard.cpu') : undefined"
+        >
+          <Cpu class="size-2.5 shrink-0" aria-hidden="true" />{{ cpu }}
+        </span>
+        <span
+          v-if="monitorResources"
+          class="flex items-center gap-1"
+          :title="tooltipsEnabled ? t('processCard.mem') : undefined"
+        >
+          <MemoryStick class="size-2.5 shrink-0" aria-hidden="true" />{{ mem }}
+        </span>
+      </div>
+
+      <div v-else class="grid gap-2 text-xs" :class="monitorResources ? 'grid-cols-3' : 'grid-cols-1'">
         <div>
           <div class="text-muted-foreground">{{ t("processCard.uptime") }}</div>
           <div class="mt-0.5 font-medium tabular-nums">{{ uptime }}</div>
@@ -241,25 +305,29 @@ function onStop() {
       </div>
 
       <div class="flex items-center gap-1.5">
-        <IconButton v-if="!isLive" :tooltip="t('processCard.tooltipStart')" variant="outline" @click="onStart">
-          <Play class="size-4 text-success" />
+        <IconButton v-if="!isLive" :tooltip="t('processCard.tooltipStart')" variant="outline" :size="d.icon" @click="onStart">
+          <Play :class="d.svg" class="text-success" />
         </IconButton>
-        <IconButton v-else :tooltip="t('processCard.tooltipStop')" variant="outline" @click="onStop">
-          <Square class="size-4 text-destructive" />
+        <IconButton v-else :tooltip="t('processCard.tooltipStop')" variant="outline" :size="d.icon" @click="onStop">
+          <Square :class="d.svg" class="text-destructive" />
         </IconButton>
-        <IconButton :tooltip="t('processCard.tooltipRestart')" variant="outline" @click="runAction(() => restart(process.id))">
-          <RotateCw class="size-4" />
+        <IconButton :tooltip="t('processCard.tooltipRestart')" variant="outline" :size="d.icon" @click="runAction(() => restart(process.id))">
+          <RotateCw :class="d.svg" />
         </IconButton>
-        <IconButton :tooltip="t('processCard.tooltipEdit')" variant="ghost" @click="emit('edit')">
+        <!-- Edit is config, not launching: the launcher window sends you to the dashboard
+             for that, so it doesn't carry a button for it. -->
+        <IconButton v-if="!compact" :tooltip="t('processCard.tooltipEdit')" variant="ghost" @click="emit('edit')">
           <Pencil class="size-4" />
         </IconButton>
-        <Button variant="outline" size="sm" class="ml-auto" @click="emit('logs')">
-          <ScrollText class="size-4" /> {{ t("processCard.logs") }}
+        <Button variant="outline" :size="d.btn" class="ml-auto" @click="emit('logs')">
+          <ScrollText :class="d.svg" /> {{ t("processCard.logs") }}
         </Button>
         <!-- Overflow for actions that don't earn a permanent button. The card's other
              actions are inline icons, so this carries only what ProcessTable's own
-             overflow adds beyond them — keeping the two layouts at feature parity. -->
-        <DropdownMenu>
+             overflow adds beyond them — keeping the two layouts at feature parity.
+             Dropped in compact: its only item is "add desktop shortcut", and you are
+             already looking at the window a desktop shortcut opened. -->
+        <DropdownMenu v-if="!compact">
           <DropdownMenuTrigger as-child>
             <Button variant="ghost" size="icon-sm" :aria-label="t('processCard.moreActions')">
               <EllipsisVertical class="size-4" />

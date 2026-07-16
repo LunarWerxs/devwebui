@@ -126,7 +126,7 @@ export const saveSettings = (patch: Partial<Settings> & { restart?: boolean }) =
  * resolves `{ ok: false, reason }` instead of throwing when no Edge/Chrome is installed
  * or the spawn fails — the caller surfaces that to the user instead of treating it as fatal.
  *
- * `path` opens the window on a specific view (e.g. "/?process=<id>") instead of the
+ * `path` opens the window on a specific view (e.g. "/focus/<id>") instead of the
  * dashboard root; the server only honours a same-origin relative path.
  */
 export const openPortableWindow = (path?: string) =>
