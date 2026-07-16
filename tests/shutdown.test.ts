@@ -94,17 +94,25 @@ test("mutating routes reject a foreign Origin before the handler runs (CSRF)", a
   }
 });
 
-test("a GET route is unaffected by the Origin gate even with a foreign Origin", async () => {
+test("a GET route is guarded too: a foreign Origin is refused, an absent one still passes", async () => {
   const manager = new Manager();
   manager.monitorResources = false;
   manager.applyMonitorResources();
   const app = createApp(manager, {});
 
   try {
-    const res = await app.request(ROUTES.health, {
+    // (i) The old hand-rolled gate exempted GET, which left cross-site read-exfil open (a
+    // malicious page could fetch local data straight out of the daemon). The shared kit
+    // guard covers every /api/* verb, so a foreign Origin is refused on a read as well.
+    const foreign = await app.request(ROUTES.health, {
       headers: { origin: "https://evil.example" },
     });
-    expect(res.status).toBe(200);
+    expect(foreign.status).toBe(403);
+
+    // (ii) A GET with no Origin at all (the tray's health probe, curl, MCP) is still served:
+    // closing the read hole must not break the same-machine tools that poll this route.
+    const noOrigin = await app.request(ROUTES.health);
+    expect(noOrigin.status).toBe(200);
   } finally {
     manager.dispose();
   }
