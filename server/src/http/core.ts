@@ -13,9 +13,8 @@ import {
   FOCUS_PATH_PREFIX,
   FOCUS_WINDOW_SIZE,
   WINDOW_SIZE_HINT_PARAM,
-  formatWindowSizeHint,
 } from "../../../shared/constants";
-import { rememberedWindowSize } from "../window-size";
+import { windowSizeHintFor } from "../window-size";
 import {
   instanceFilePath,
   readInstanceInfo,
@@ -303,19 +302,19 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
       // Chromium instance running: the forwarded --app launch inherits the EXISTING
       // window's geometry, ignoring --window-size and the saved placement alike (the
       // launcher's "Open dashboard" always lands here — the launcher is that instance).
-      // So also tell the page what size this window should be — its own remembered
-      // size when the user has set one, the measured first-run size otherwise — and it
-      // corrects itself with resizeTo (web/src/lib/window-size-hint.ts). The query
-      // string is not part of Chromium's placement key, so the hint can't re-key the
-      // window; a URL that won't parse just goes out without one.
+      // So also tell the page what size this window should be, and it corrects itself
+      // with resizeTo (web/src/lib/window-size-hint.ts). Which size — remembered vs
+      // first-run vs "none, the window is maximized" — is windowSizeHintFor's one job.
+      // The query string is not part of Chromium's placement key, so the hint can't
+      // re-key the window; a URL that won't parse just goes out without one.
       let target = url;
       try {
-        const u = new URL(url);
-        u.searchParams.set(
-          WINDOW_SIZE_HINT_PARAM,
-          formatWindowSizeHint(rememberedWindowSize(profileDir, url) ?? initialSize),
-        );
-        target = u.toString();
+        const hint = windowSizeHintFor(profileDir, url, initialSize);
+        if (hint) {
+          const u = new URL(url);
+          u.searchParams.set(WINDOW_SIZE_HINT_PARAM, hint);
+          target = u.toString();
+        }
       } catch {
         /* unparseable base URL: open it un-hinted rather than fail the route */
       }

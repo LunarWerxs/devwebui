@@ -28,6 +28,19 @@ export function applyWindowSizeHint(): void {
     (window.outerWidth !== hint.width || window.outerHeight !== hint.height)
   ) {
     window.resizeTo(hint.width, hint.height);
+    // A forwarded launch inherits a SIBLING's position, so growing from there can push
+    // past the monitor's edge (a launcher parked bottom-right spawns a mostly-offscreen
+    // dashboard). Clamp back inside THIS monitor's available area — availLeft/availTop
+    // keep the correction on the window's own monitor rather than yanking it to the
+    // primary. Only after an actual resize: an untouched window is never repositioned.
+    const s = window.screen as Screen & { availLeft?: number; availTop?: number };
+    const minX = s.availLeft ?? 0;
+    const minY = s.availTop ?? 0;
+    const maxX = Math.max(minX, minX + s.availWidth - hint.width);
+    const maxY = Math.max(minY, minY + s.availHeight - hint.height);
+    const x = Math.min(Math.max(window.screenX, minX), maxX);
+    const y = Math.min(Math.max(window.screenY, minY), maxY);
+    if (x !== window.screenX || y !== window.screenY) window.moveTo(x, y);
   }
   params.delete(WINDOW_SIZE_HINT_PARAM);
   const qs = params.toString();

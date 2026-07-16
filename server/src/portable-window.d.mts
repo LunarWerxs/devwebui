@@ -51,6 +51,9 @@ export function appWindowPlacementKey(url: string): string | null;
  * True when Chromium has already stored bounds for this window in `profileDir` — i.e. the
  * user has moved or resized it. False for a never-opened window, an unreadable profile, or
  * a size we merely imposed via `--window-size` (Chromium does not persist those).
+ * Handles both storage forms: the flat key, and the nested dicts Chromium writes a dotted
+ * key as (prefs go by dotted path: `localhost_/focus/p1.main` lands under
+ * `["localhost_/focus/p1"]["main"]`).
  */
 export function hasRememberedBounds(profileDir: string | undefined, url: string): boolean;
 

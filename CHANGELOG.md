@@ -6,6 +6,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-16
+
+### Fixed
+- **Resizing a launcher window now sticks.** Chromium stores a saved placement whose key
+  contains a dot — every focus window's does, the process id is `<projectId>.<localId>` —
+  as nested dicts, not under the flat key, so the kit's "has the user sized this window?"
+  probe never saw launcher placements and `--window-size` kept overriding the user's
+  resize on every fresh launch. The probe now reads both storage forms (and ignores
+  degenerate zero-area rects), and the size hint carries the user's saved size to
+  forwarded launches, so a resized launcher keeps its size in every launch path.
+- **A maximized window stays maximized.** Chromium stores `maximized: true` on the saved
+  placement with the rect holding the pre-maximize *restore* bounds; the size hint would
+  have resized a deliberately maximized window back down to those bounds on its next
+  open. A maximized placement now sends no hint at all — fresh launches restore the
+  maximized state natively.
+- **"Open dashboard" can't spawn duplicates, and corrected windows stay on-screen.** The
+  launcher's dashboard button now ignores re-entry while a request is in flight (a fast
+  double-click used to open two dashboard windows), and after the page applies a size
+  hint it clamps the window back inside its monitor's available area — a forwarded
+  launch inherits the launcher's position, so growing from a corner could push most of
+  the window off-screen.
+
 ## [0.5.1] - 2026-07-16
 
 ### Fixed
@@ -306,7 +328,8 @@ First public, open-source release.
   `zod` is intentionally held at 3.x — `@modelcontextprotocol/sdk` is not yet
   zod-4 compatible, so bumping it would break the MCP server.
 
-[Unreleased]: https://github.com/LunarWerxs/devwebui/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/LunarWerxs/devwebui/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/LunarWerxs/devwebui/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/LunarWerxs/devwebui/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/LunarWerxs/devwebui/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/LunarWerxs/devwebui/compare/v0.3.0...v0.4.0

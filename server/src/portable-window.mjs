@@ -122,6 +122,18 @@ export function appWindowPlacementKey(url) {
  * what makes {@link openPortableWindow}'s `initialSize` stable rather than sticky: we
  * keep supplying it until the user overrides it by hand, and from then on it's theirs.
  *
+ * The lookup tries the placement key flat AND as a dotted pref path: Chromium writes
+ * preferences by path, so a key containing dots — any URL path with a dot in it, e.g.
+ * DevWebUI's `/focus/<projectId>.<localId>` windows — lands as nested dicts
+ * ("localhost_/focus/p1" → {"main": {...}}), not under the flat key its own
+ * `GenerateApplicationNameFromURL` produces (observed against Edge 150, 2026-07-16).
+ * A flat-only probe reports false for every such window, so `--window-size` keeps
+ * being passed and silently undoes the user's resize on each launch.
+ *
+ * Only a node shaped like a placement (a numeric window rect) counts: a nested
+ * CONTAINER dict — another window's dotted key sharing this key as its prefix —
+ * must not read as "this window was saved".
+ *
  * Any failure (no profile, no Preferences yet, unreadable/!JSON) reports false — i.e.
  * "nothing remembered", which makes a fresh profile take the caller's initial size.
  */
@@ -130,7 +142,23 @@ export function hasRememberedBounds(profileDir, url) {
   if (!profileDir || !key) return false;
   try {
     const prefs = JSON.parse(readFileSync(join(profileDir, "Default", "Preferences"), "utf8"));
-    return Boolean(prefs?.browser?.app_window_placement?.[key]);
+    const placements = prefs?.browser?.app_window_placement;
+    if (!placements || typeof placements !== "object") return false;
+    let node = placements[key];
+    if (node === undefined) {
+      node = key.split(".").reduce((n, seg) => (n && typeof n === "object" ? n[seg] : undefined), placements);
+    }
+    return (
+      typeof node?.left === "number" &&
+      typeof node.top === "number" &&
+      typeof node.right === "number" &&
+      typeof node.bottom === "number" &&
+      // A rect with no area (left===right from e.g. a monitor-disconnect reconciliation)
+      // is junk, not a remembered size: treating it as "remembered" would skip
+      // --window-size and let Chromium restore an invisible window.
+      node.right > node.left &&
+      node.bottom > node.top
+    );
   } catch {
     return false;
   }

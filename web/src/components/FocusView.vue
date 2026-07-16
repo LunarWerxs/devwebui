@@ -70,13 +70,26 @@ function requestClose() {
  * remembered geometry) and close this one. Only when that can't work — no Chromium to
  * spawn, or the daemon is unreachable — fall back to in-place navigation so the button
  * is never a dead end; a cramped dashboard still beats no dashboard.
+ *
+ * `opening` gates re-entry: the header button and the card's error badge both land
+ * here, a forwarded --app launch opens a NEW window per invocation, and Chromium does
+ * not fold duplicates — an unguarded double-click means two dashboards.
  */
+const opening = ref(false);
+
 async function openDashboard() {
+  if (opening.value) return;
+  opening.value = true;
   try {
     const r = await openPortableWindow("/");
     if (r.ok) {
-      window.close(); // works in an --app window; harmless no-op in a plain tab
-      return;
+      // ok means the browser PROCESS spawned; the forwarded window it hands off to the
+      // running instance appears a beat later. Closing raced against that handoff
+      // survived 3/3 tightest-timing trials (Edge 150, 2026-07-16) — the singleton
+      // accepts the launch even as its last window closes — so this delay is cheap
+      // insurance, not load-bearing; it also reads less abruptly than an instant blink.
+      setTimeout(() => window.close(), 400); // no-op in a plain tab
+      return; // deliberately never resets `opening`: this window is done
     }
   } catch {
     // daemon unreachable — same fallback as a failed spawn
@@ -127,6 +140,7 @@ onMounted(async () => {
         variant="ghost"
         size="icon-xs"
         class="ml-auto"
+        :disabled="opening"
         :title="tooltipsEnabled ? t('focus.openDashboard') : undefined"
         :aria-label="t('focus.openDashboard')"
         @click="openDashboard"
@@ -156,7 +170,7 @@ onMounted(async () => {
       <div v-else class="mx-auto mt-24 flex max-w-sm flex-col items-center gap-4 text-center">
         <h2 class="text-lg font-semibold">{{ t("focus.notFound") }}</h2>
         <p class="text-sm text-muted-foreground">{{ t("focus.notFoundHint") }}</p>
-        <Button variant="outline" @click="openDashboard">
+        <Button variant="outline" :disabled="opening" @click="openDashboard">
           <LayoutDashboard class="size-4" /> {{ t("focus.openDashboard") }}
         </Button>
       </div>

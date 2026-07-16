@@ -87,6 +87,8 @@ test("appWindowPlacementKey mirrors Chromium: host + '_' + path, NO port and NO 
   // A path DOES separate them.
   expect(appWindowPlacementKey("http://localhost:4000/focus/a")).toBe("localhost_/focus/a");
   expect(appWindowPlacementKey("http://localhost:4000/focus/b")).toBe("localhost_/focus/b");
+  // A dot in the path stays in the key — but Chromium STORES such a key nested (see below).
+  expect(appWindowPlacementKey("http://localhost:4000/focus/p1.main")).toBe("localhost_/focus/p1.main");
   expect(appWindowPlacementKey("not a url")).toBeNull();
 });
 
@@ -115,9 +117,48 @@ test("hasRememberedBounds: true only for a placement actually saved for THIS win
     );
     expect(hasRememberedBounds(dir, url)).toBe(true);
 
+    // A degenerate (zero-area) rect is junk, not a remembered size — reporting it as
+    // remembered would skip --window-size and let Chromium restore an invisible window.
+    writeFileSync(
+      prefs,
+      JSON.stringify({
+        browser: { app_window_placement: { "localhost_/focus/main": { left: 100, top: 100, right: 100, bottom: 100 } } },
+      }),
+    );
+    expect(hasRememberedBounds(dir, url)).toBe(false);
+
     // Corrupt/unreadable Preferences must not throw — it degrades to "nothing remembered".
     writeFileSync(prefs, "{ not json");
     expect(hasRememberedBounds(dir, url)).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hasRememberedBounds reads the NESTED form a dotted placement key is stored as", () => {
+  // Chromium writes preferences by dotted PATH, so a placement key containing a dot —
+  // e.g. DevWebUI's /focus/<projectId>.<localId> windows — lands as nested dicts:
+  // app_window_placement["localhost_/focus/p1"]["main"], NOT under the flat key its own
+  // key format names (observed against Edge 150, 2026-07-16). A flat-only probe reported
+  // false for every such window, so --window-size kept overriding the user's saved
+  // resize on each fresh-process launch.
+  const dir = mkdtempSync(join(tmpdir(), "lw-portable-"));
+  try {
+    mkdirSync(join(dir, "Default"), { recursive: true });
+    writeFileSync(
+      join(dir, "Default", "Preferences"),
+      JSON.stringify({
+        browser: {
+          app_window_placement: { "localhost_/focus/p1": { main: { left: 1, top: 2, right: 441, bottom: 222 } } },
+        },
+      }),
+    );
+    expect(hasRememberedBounds(dir, "http://localhost:4000/focus/p1.main")).toBe(true);
+    // The sibling local id under the same project is a different window.
+    expect(hasRememberedBounds(dir, "http://localhost:4000/focus/p1.other")).toBe(false);
+    // The nested CONTAINER dict is not itself a saved placement: the dotless prefix
+    // window was never saved, so it must still receive the caller's initial size.
+    expect(hasRememberedBounds(dir, "http://localhost:4000/focus/p1")).toBe(false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
