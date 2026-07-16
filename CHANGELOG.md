@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-16
+
 ### Fixed
 - **The launcher's "Open dashboard" button opens a real dashboard window, not a 440x220 one.**
   It used to navigate the launcher window itself to `/`, cramming the full dashboard into the
@@ -304,6 +306,10 @@ First public, open-source release.
   `zod` is intentionally held at 3.x — `@modelcontextprotocol/sdk` is not yet
   zod-4 compatible, so bumping it would break the MCP server.
 
-[Unreleased]: https://github.com/LunarWerxs/devwebui/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/LunarWerxs/devwebui/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/LunarWerxs/devwebui/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/LunarWerxs/devwebui/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/LunarWerxs/devwebui/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/LunarWerxs/devwebui/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/LunarWerxs/devwebui/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/LunarWerxs/devwebui/releases/tag/v0.1.0
