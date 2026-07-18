@@ -5,7 +5,7 @@ import * as api from "./api";
 import { useSelfUpdate } from "@/lib/useSelfUpdate";
 import { useTheme } from "@/lib/theme";
 import type { AddResult, DetectedProcess } from "./api";
-import type { LastCrash, ScanResult } from "./api";
+import type { ScanResult } from "./api";
 import type { SyncStatus } from "./api";
 import type { UpdateApplyResult, UpdateStatus } from "./api";
 import { MAX_LOG_LINES } from "../../shared/constants";
@@ -61,14 +61,6 @@ export const useAppStore = defineStore("app", () => {
     useSelfUpdate<UpdateStatus, UpdateApplyResult>(api);
   const logs = ref<Record<string, LogLine[]>>({});
   const errors = ref<ErrorEvent[]>([]);
-  /**
-   * Time-Travel Log Vault killer detail: the most recent "a process whose last run
-   * crashed is starting again" event (from SSE — covers auto-started processes with
-   * no HTTP response to carry this on). A component (AppShell) watches this and
-   * shows the dismissible hint toast; bumped with a fresh object reference each time
-   * so the same process crashing twice in a row still re-triggers the watcher.
-   */
-  const lastCrashEvent = ref<{ id: string; lastCrash: LastCrash } | null>(null);
   /** Absolute dirs of detected projects the user dismissed (hidden from the background scan). */
   const ignoredProjects = ref<string[]>([]);
 
@@ -270,7 +262,7 @@ export const useAppStore = defineStore("app", () => {
   function connect() {
     const { status, data, event } = useEventSource(
       "/api/stream",
-      ["projects", "errors", "status", "log", "lastCrash"],
+      ["projects", "errors", "status", "log"],
       { autoReconnect: { retries: -1, delay: 2500 } },
     );
     watch(status, (s) => (connected.value = s === "OPEN"));
@@ -299,9 +291,6 @@ export const useAppStore = defineStore("app", () => {
           }
           break;
         }
-        case "lastCrash":
-          lastCrashEvent.value = parsed as { id: string; lastCrash: LastCrash };
-          break;
       }
     });
   }
@@ -522,7 +511,6 @@ export const useAppStore = defineStore("app", () => {
     updateApplying,
     logs,
     errors,
-    lastCrashEvent,
     notifications,
     unreadNotifications,
     monitorResources,

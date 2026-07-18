@@ -1,7 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import treeKill from "tree-kill";
 import type { FreePortResult, PortOwner } from "../../../shared/dto";
-import { clearLastCrash, readLastCrash, recordLastCrash, type LastCrash } from "../log-vault";
 import { freePort, isPortListening, killPids, portOwners } from "../ports";
 import { effectiveRuntime, withRuntime } from "../runtime";
 import { setEnabledOverride, setProjectOverride } from "../state";
@@ -31,24 +30,18 @@ export class ManagerWithLifecycle extends ManagerWithMonitoring {
 
   // ---- processes ----------------------------------------------------------
   /**
-   * Start a process. Returns the crash metadata from its LAST run (if that run
-   * ended in a non-zero exit) so a caller (the HTTP route/GUI) can proactively
-   * surface "last time this failed with …" — the Log Vault's killer detail.
-   * Returns null when there's no child to start (already running/starting) or
-   * the last run wasn't a crash.
+   * Start a process. A no-op when there's nothing to start (already running or
+   * mid-start). A crash from a PREVIOUS run is deliberately not surfaced here:
+   * crashes are reported once, when they happen, through the errors panel — a
+   * process that died last run but is healthy now is not a problem to interrupt on.
    */
-  start(id: string): LastCrash | null {
+  start(id: string): void {
     const e = this.entries.get(id);
-    if (!e || e.child || e.pendingStart) return null;
-    const lastCrash = readLastCrash(id);
+    if (!e || e.child || e.pendingStart) return;
     this.cancelQueuedStart(id);
     e.stopping = false;
     e.exitCode = null;
     this.clearStopTimer(e);
-    // Also push over SSE (a dedicated event, not folded into the frequent "status"
-    // stream) so auto-started processes — no HTTP response to attach this to — still
-    // surface the hint in the GUI.
-    if (lastCrash) this.emit("lastCrash", { id, lastCrash });
 
     // Dependency-ordered startup (S): wait for a declared port before spawning. The
     // wait is async, so flag pendingStart — same guard the free-port step below uses
@@ -81,24 +74,22 @@ export class ManagerWithLifecycle extends ManagerWithMonitoring {
       this.setStatus(e, "starting");
       this.continueStart(e);
     }
-    return lastCrash;
   }
 
   /**
    * Start a process the way the GUI/MCP "start" action does: the process itself,
    * plus its linked group and the project's companion processes (see links.ts for
-   * the semantics). The anchor starts immediately — preserving `start()`'s
-   * last-crash return for the caller — while the rest go through the ordinary
-   * staggered, dependency-ordered batch queue. Already-running members are
+   * the semantics). The anchor starts immediately, while the rest go through the
+   * ordinary staggered, dependency-ordered batch queue. Already-running members are
    * no-ops, so this is safely idempotent ("bring this group up").
    * `coStarted` lists the OTHER processes this action actually set in motion
    * (already-running/queued members excluded) so the GUI can say "also started …".
    */
-  startWithLinks(id: string): { lastCrash: LastCrash | null; coStarted: string[] } {
+  startWithLinks(id: string): { coStarted: string[] } {
     const e = this.entries.get(id);
-    if (!e) return { lastCrash: null, coStarted: [] };
+    if (!e) return { coStarted: [] };
     let extras = coStartIds(e.def, [...this.defsById().values()]);
-    const lastCrash = this.start(id);
+    this.start(id);
     // startMany() is all-or-nothing on a waitForPort cycle — correct for an
     // explicit batch, but here an unrelated cycle (say, between two companions)
     // would silently block the anchor's real linked group. Strip cycle members
@@ -124,7 +115,7 @@ export class ManagerWithLifecycle extends ManagerWithMonitoring {
       return !!xe && !xe.child && !xe.pendingStart && !this.queuedStarts.has(x);
     });
     if (extras.length) this.startMany(extras);
-    return { lastCrash, coStarted };
+    return { coStarted };
   }
 
   /**
@@ -468,16 +459,10 @@ export class ManagerWithLifecycle extends ManagerWithMonitoring {
     if (e.child !== child) return;
     const current = this.entries.get(e.def.id) === e;
     const crashed = current && !e.stopping && code !== 0 && code !== null;
-    if (crashed) {
-      this.errors.record(this.errorInfo(e), "crash", `Process exited with code ${code}`);
-      // Time-Travel Log Vault killer detail: persist this crash's exit code + stderr
-      // tail so the NEXT start() attempt can proactively surface it, even across a
-      // daemon restart (the in-memory Entry this reads from is gone by then).
-      recordLastCrash(e.def.id, code, e.recentStderr);
-    } else if (code === 0) {
-      // A clean exit retires any previously-recorded crash hint for this process.
-      clearLastCrash(e.def.id);
-    }
+    // A crash is reported ONCE, here, into the errors panel — the single channel for
+    // "something is wrong right now". Nothing is persisted to replay on the next start:
+    // the stderr behind it stays readable in the rotating log file (see log-vault.ts).
+    if (crashed) this.errors.record(this.errorInfo(e), "crash", `Process exited with code ${code}`);
     this.finishProcess(e, child, crashed ? "crashed" : "stopped", code);
   }
 }

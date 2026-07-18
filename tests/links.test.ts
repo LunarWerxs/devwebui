@@ -382,7 +382,6 @@ test("startWithLinks: an unknown id reports nothing and starts nothing", async (
     });
 
     const result = manager.startWithLinks("links-test.unknown");
-    expect(result.lastCrash).toBeNull();
     expect(result.coStarted).toEqual([]);
 
     await sleep(150);

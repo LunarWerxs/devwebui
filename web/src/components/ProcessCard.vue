@@ -34,7 +34,6 @@ import { disableProcess, enableProcess, restart, start, stop } from "@/api";
 import { useAppStore } from "@/store";
 import { useFreePortAction } from "@/lib/freePort";
 import { useGroupActionToast } from "@/lib/groupToast";
-import { useLastCrashHint } from "@/lib/lastCrash";
 import { useShortcutAction } from "@/lib/shortcut";
 import { useRunAction } from "@/lib/useAction";
 import { useTooltipConfig } from "@/lib/tooltip-config";
@@ -46,7 +45,6 @@ import { useI18n } from "vue-i18n";
 
 const { t } = useI18n({ useScope: "global" });
 const freePortAction = useFreePortAction();
-const showLastCrashHint = useLastCrashHint();
 const { addProcessShortcut } = useShortcutAction();
 const { enabled: tooltipsEnabled } = useTooltipConfig();
 
@@ -119,12 +117,10 @@ const linkedNames = computed(() => {
 const runAction = useRunAction("processCard.actionFailed");
 const showGroupToast = useGroupActionToast();
 
-/** Start, then surface the Time-Travel Log Vault hint if the LAST run crashed,
- *  and the "also started …" ripple when a linked group / companion came along. */
+/** Start, surfacing the "also started …" ripple when a linked group / companion came along. */
 function onStart() {
   return runAction(async () => {
     const res = await start(props.process.id);
-    if (res.lastCrash) showLastCrashHint(props.process.name, res.lastCrash);
     showGroupToast("started", res.coStarted);
   });
 }

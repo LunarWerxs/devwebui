@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { storeToRefs } from "pinia";
 import { Plus } from "@lucide/vue";
@@ -17,24 +17,12 @@ import AppFooter from "@/shell/AppFooter.vue";
 import { useAppStore } from "./store";
 import { toast } from "vue-sonner";
 import { getSettings, scanForDevWebUI, type ScanResult } from "@/api";
-import { useLastCrashHint } from "@/lib/lastCrash";
 import type { AppNotification, ProcessView } from "@/types";
 
 const { t } = useI18n({ useScope: "global" });
 
 const store = useAppStore();
-const { projects, connected, allProcesses, lastCrashEvent } = storeToRefs(store);
-const showLastCrashHint = useLastCrashHint();
-
-// Time-Travel Log Vault killer detail: a process whose last run crashed is starting
-// again (pushed over SSE — covers auto-started processes with no HTTP response to
-// carry this on; the direct start() response case is handled at the call site, e.g.
-// ProcessCard/ProcessTable, so both paths funnel through the same toast helper).
-watch(lastCrashEvent, (ev) => {
-  if (!ev) return;
-  const name = allProcesses.value.find((p) => p.id === ev.id)?.name ?? ev.id;
-  showLastCrashHint(name, ev.lastCrash);
-});
+const { projects, connected, allProcesses } = storeToRefs(store);
 
 const selected = ref<string | null>(null);
 const drawerOpen = ref(false);

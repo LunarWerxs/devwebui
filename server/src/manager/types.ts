@@ -25,9 +25,6 @@ export interface Entry {
   /** While status is "waiting": the resolved port number being waited on (for the GUI hint). */
   waitingOnPort: number | null;
   logs: LogLine[];
-  /** Small ring of the most recent stderr lines — cheap source for the crash-tail hint
-   *  (log-vault's recordLastCrash) without re-reading the log file at exit time. */
-  recentStderr: string[];
   stopping: boolean;
   pendingStart: boolean; // start() is awaiting the async free-port step (no child yet)
   exitWaiters: Array<() => void>;

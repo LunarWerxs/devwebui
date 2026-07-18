@@ -107,12 +107,6 @@ export default {
     title: "Logs",
     noOutput: "No output yet.",
   },
-  lastCrash: {
-    title: "{name} crashed last time it ran",
-    exitCode: "Exit code: {code}",
-    unknownCode: "unknown",
-    noOutput: "(no stderr output was captured)",
-  },
   groupAction: {
     alsoStarted: "Also started: {names}",
     alsoStopped: "Also stopped: {names}",

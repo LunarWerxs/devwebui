@@ -4,10 +4,12 @@
 // pipeline (manager/monitoring.ts's addLog). Size-based rotation (~1MB, keep
 // 2 rotations: <id>.log.1, <id>.log.2), no new deps (fs only).
 //
-// THE KILLER DETAIL lives alongside: a small per-process "last crash" sidecar
-// (lastcrash.json) recording {exitCode, endedAt, stderrTail} so the next
-// start() attempt can proactively surface it — this survives daemon restarts,
-// unlike the in-memory Entry it's derived from.
+// Crash HISTORY deliberately does NOT live here. A crash is surfaced once, when
+// it happens, through the errors panel (manager/lifecycle.ts's handleExit ->
+// errors.record); the stderr that caused it stays readable in the log files
+// above. There is no "last crash" sidecar and no start-time hint: a process that
+// died on a previous run but is healthy now is not a problem, and interrupting
+// on it trains the user to ignore the alert channel that DOES matter.
 //
 // `def.id` (`${projectId}.${localId}`) is already filesystem-safe (projectId
 // is `p`+8 hex chars; localId is schema-validated to [A-Za-z0-9._-] — see
@@ -22,18 +24,13 @@ import {
   renameSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { dataDir } from "./data-dir";
-import type { LastCrash } from "../../shared/dto";
-
-export type { LastCrash };
 
 const vaultDir = (): string => path.join(dataDir(), "logs");
 const MAX_BYTES = 1_000_000; // ~1MB per file before rotating
 const KEEP_ROTATIONS = 2; // <id>.log.1, <id>.log.2 — <id>.log.3+ is discarded
-const STDERR_TAIL_LINES = 20;
 
 /** Sanitize an id for use as a filename component (defense in depth — see header comment). */
 function safeId(id: string): string {
@@ -47,10 +44,6 @@ function ensureDir(): void {
 function logPath(id: string, rotation = 0): string {
   const base = path.join(vaultDir(), `${safeId(id)}.log`);
   return rotation === 0 ? base : `${base}.${rotation}`;
-}
-
-function sidecarPath(id: string): string {
-  return path.join(vaultDir(), `${safeId(id)}.lastcrash.json`);
 }
 
 /** Shift <id>.log -> .1 -> .2, dropping anything past KEEP_ROTATIONS, then start a fresh <id>.log. */
@@ -112,43 +105,6 @@ export function tailLog(id: string, lines: number): string[] {
   }
 }
 
-/** Persist the last crash's exit metadata + stderr tail for a process (best-effort). */
-export function recordLastCrash(id: string, exitCode: number | null, recentStderr: string[]): void {
-  try {
-    ensureDir();
-    const crash: LastCrash = {
-      exitCode,
-      endedAt: Date.now(),
-      stderrTail: recentStderr.slice(-STDERR_TAIL_LINES),
-    };
-    writeFileSync(sidecarPath(id), JSON.stringify(crash));
-  } catch {
-    /* best-effort */
-  }
-}
-
-/** Read the last recorded crash for a process, or null if none / unreadable. */
-export function readLastCrash(id: string): LastCrash | null {
-  try {
-    const raw = readFileSync(sidecarPath(id), "utf8");
-    const parsed = JSON.parse(raw) as LastCrash;
-    if (typeof parsed.endedAt !== "number") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-/** Clear the last-crash sidecar (e.g. after a clean start makes it stale). */
-export function clearLastCrash(id: string): void {
-  try {
-    rmSync(sidecarPath(id), { force: true });
-  } catch {
-    /* best-effort */
-  }
-}
-
-export const STDERR_TAIL_LINE_COUNT = STDERR_TAIL_LINES;
 export const LOG_ROTATION_MAX_BYTES = MAX_BYTES;
 export const LOG_ROTATION_KEEP = KEEP_ROTATIONS;
 

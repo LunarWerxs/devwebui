@@ -1,14 +1,15 @@
 // ───────────────────────────────────────────────────────────────────────────────
-// Time-Travel Log Vault, end-to-end through the real Manager: a process that
-// crashes gets its exit metadata + stderr tail persisted (log-vault.ts), and the
-// NEXT start() attempt proactively returns that as `lastCrash` — the killer detail.
-// Also covers getLogFileTail() (the GET .../logfile route's backing method) and that
-// a clean exit retires a stale crash hint. Real child processes (bun -e), following
-// manager.test.ts's idiom, so the daemon's actual spawn/exit/log pipeline is exercised.
+// Time-Travel Log Vault, end-to-end through the real Manager: a crashing process's
+// stderr lands in the on-disk rotating log file and survives the crash, readable via
+// getLogFileTail() (the GET .../logfile route's backing method). Crash HISTORY is
+// deliberately not persisted anywhere else — a crash is reported once, into the
+// errors panel, and never replayed on a later start. Real child processes (bun -e),
+// following manager.test.ts's idiom, so the daemon's actual spawn/exit/log pipeline
+// is exercised.
 // ───────────────────────────────────────────────────────────────────────────────
 import "./isolate"; // CWD-proof data-dir isolation — must load before any server/src import
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { Manager } from "../server/src/manager";
 import { logVaultDir } from "../server/src/log-vault";
@@ -62,8 +63,6 @@ function cleanupVaultFiles(id: string) {
     const f = path.join(dir, `${id}.log${suffix}`);
     if (existsSync(f)) rmSync(f, { force: true });
   }
-  const sidecar = path.join(dir, `${id}.lastcrash.json`);
-  if (existsSync(sidecar)) rmSync(sidecar, { force: true });
 }
 
 afterEach(() => {
@@ -79,7 +78,7 @@ async function waitFor(fn: () => boolean, timeoutMs = 5000, stepMs = 25): Promis
   }
 }
 
-test("a crashed process's exit code + stderr tail persist, and the next start() surfaces them", async () => {
+test("a crashed process's stderr survives the crash in the on-disk log file", async () => {
   const manager = new Manager();
   manager.monitorResources = false;
   manager.applyMonitorResources();
@@ -95,8 +94,7 @@ test("a crashed process's exit code + stderr tail persist, and the next start() 
       },
     );
 
-    const firstStart = manager.start(globalId);
-    expect(firstStart).toBeNull(); // nothing crashed before this run
+    manager.start(globalId);
 
     await waitFor(() => manager.view(globalId)?.status === "crashed");
 
@@ -106,21 +104,13 @@ test("a crashed process's exit code + stderr tail persist, and the next start() 
 
     const tail = manager.getLogFileTail(globalId, 50);
     expect(tail.some((l) => l.includes("ECONNREFUSED"))).toBe(true);
-
-    // The killer detail: starting again surfaces the PREVIOUS crash.
-    const secondStart = manager.start(globalId);
-    expect(secondStart).not.toBeNull();
-    expect(secondStart?.exitCode).toBe(1);
-    expect(secondStart?.stderrTail.some((l) => l.includes("ECONNREFUSED"))).toBe(true);
-
-    await waitFor(() => manager.view(globalId)?.status === "crashed");
   } finally {
     await manager.stopProject("logvault-mgr-test");
     manager.dispose();
   }
 }, 10000);
 
-test("a clean exit retires a previously-recorded crash hint", async () => {
+test("a crash leaves nothing behind to replay on the next start", async () => {
   const manager = new Manager();
   manager.monitorResources = false;
   manager.applyMonitorResources();
@@ -135,17 +125,16 @@ test("a clean exit retires a previously-recorded crash hint", async () => {
     manager.start(globalId);
     await waitFor(() => manager.view(globalId)?.status === "crashed");
 
-    expect(manager.getLastCrash(globalId)).not.toBeNull();
+    // No crash sidecar is written — the log vault holds log files only.
+    const strays = readdirSync(logVaultDir()).filter(
+      (f) => f.startsWith(globalId) && !/\.log(\.\d+)?$/.test(f),
+    );
+    expect(strays).toEqual([]);
 
-    // Swap in a command that exits cleanly, then reconcile + start it.
+    // Swapping in a clean command and starting again is an ordinary start: the
+    // previous crash is not resurfaced in any form.
     manager.reconcileProject(project([processDef(localId, cleanExitCommand())]));
-    const started = manager.start(globalId);
-    expect(started).not.toBeNull(); // still surfaces the OLD crash on this start
-    await waitFor(() => manager.view(globalId)?.status === "stopped");
-
-    // Now the crash hint should be retired.
-    expect(manager.getLastCrash(globalId)).toBeNull();
-    expect(manager.start(globalId)).toBeNull();
+    manager.start(globalId);
     await waitFor(() => manager.view(globalId)?.status === "stopped");
   } finally {
     await manager.stopProject("logvault-mgr-test");

@@ -128,10 +128,6 @@ export function registerRealtime(app: Hono, manager: Manager) {
   manager.on("log", (l) => broadcast("log", l));
   manager.on("projects", (p) => broadcast("projects", p));
   manager.on("errors", (e) => broadcast("errors", e));
-  // Time-Travel Log Vault killer detail: a process about to (re)start whose LAST run
-  // crashed. A dedicated event (not folded into "status") so the GUI can show a
-  // one-shot dismissible hint without every routine status tick carrying the payload.
-  manager.on("lastCrash", (v) => broadcast("lastCrash", v));
   // Auto-update lifecycle events (see server/src/auto-update.ts): the module itself has no
   // transport, so server/src/index.ts wires its broadcast hook to `manager.emit("autoUpdate", …)`,
   // relayed out to SSE clients here exactly like every other manager event.

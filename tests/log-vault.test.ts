@@ -1,6 +1,5 @@
 // ───────────────────────────────────────────────────────────────────────────────
-// Time-Travel Log Vault: rotation, tail retrieval, and the last-crash sidecar that
-// backs the "next start() surfaces the previous crash" killer detail. The module
+// Time-Travel Log Vault: rotation and tail retrieval. The module
 // resolves its directory via the shared dataDir() (DEVWEBUI_HOME-overridable), so
 // under the test preload everything lands in the suite's temp dir — never the real
 // ~/.devwebui/logs. Tests still use randomized process ids and clean up after
@@ -8,16 +7,13 @@
 // ───────────────────────────────────────────────────────────────────────────────
 import "./isolate"; // CWD-proof data-dir isolation — must load before any server/src import
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import {
   appendLog,
-  clearLastCrash,
   LOG_ROTATION_KEEP,
   LOG_ROTATION_MAX_BYTES,
   logVaultDir,
-  readLastCrash,
-  recordLastCrash,
   tailLog,
 } from "../server/src/log-vault";
 
@@ -35,8 +31,6 @@ function cleanup(id: string) {
     const f = path.join(dir, `${id}.log${suffix}`);
     if (existsSync(f)) rmSync(f, { force: true });
   }
-  const sidecar = path.join(dir, `${id}.lastcrash.json`);
-  if (existsSync(sidecar)) rmSync(sidecar, { force: true });
 }
 
 afterEach(() => {
@@ -118,46 +112,13 @@ test("rotation keeps only LOG_ROTATION_KEEP older files — the oldest is droppe
   expect(existsSync(path.join(dir, `${id}.log.${LOG_ROTATION_KEEP + 1}`))).toBe(false);
 });
 
-// ---- last-crash sidecar ------------------------------------------------------
+// ---- the vault writes log files ONLY -----------------------------------------
 
-test("readLastCrash returns null when nothing has been recorded", () => {
-  const id = uniqueId("no-crash");
-  expect(readLastCrash(id)).toBeNull();
-});
-
-test("recordLastCrash + readLastCrash round-trip exit code and stderr tail", () => {
-  const id = uniqueId("crash");
-  const before = Date.now();
-  recordLastCrash(id, 1, ["Error: ECONNREFUSED 127.0.0.1:5432", "    at Socket.<anonymous>"]);
-  const crash = readLastCrash(id);
-  expect(crash).not.toBeNull();
-  expect(crash?.exitCode).toBe(1);
-  expect(crash?.endedAt).toBeGreaterThanOrEqual(before);
-  expect(crash?.stderrTail).toEqual([
-    "Error: ECONNREFUSED 127.0.0.1:5432",
-    "    at Socket.<anonymous>",
-  ]);
-});
-
-test("recordLastCrash truncates the stderr tail to the last N lines", () => {
-  const id = uniqueId("crash-truncate");
-  const lines = Array.from({ length: 40 }, (_, i) => `stderr line ${i}`);
-  recordLastCrash(id, 1, lines);
-  const crash = readLastCrash(id);
-  expect(crash?.stderrTail.length).toBeLessThanOrEqual(20);
-  expect(crash?.stderrTail.at(-1)).toBe("stderr line 39");
-});
-
-test("clearLastCrash removes a recorded crash", () => {
-  const id = uniqueId("crash-clear");
-  recordLastCrash(id, 1, ["boom"]);
-  expect(readLastCrash(id)).not.toBeNull();
-  clearLastCrash(id);
-  expect(readLastCrash(id)).toBeNull();
-});
-
-test("clearLastCrash on a process with no recorded crash is a harmless no-op", () => {
-  const id = uniqueId("crash-clear-noop");
-  expect(() => clearLastCrash(id)).not.toThrow();
-  expect(readLastCrash(id)).toBeNull();
+test("appendLog writes nothing but .log files — no crash sidecar", () => {
+  const id = uniqueId("no-sidecar");
+  appendLog(id, ["a line"]);
+  const strays = readdirSync(logVaultDir()).filter(
+    (f) => f.startsWith(id) && !/\.log(\.\d+)?$/.test(f),
+  );
+  expect(strays).toEqual([]);
 });

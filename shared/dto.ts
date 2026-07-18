@@ -82,16 +82,6 @@ export interface LogLine {
   ts: number;
 }
 
-/**
- * Time-Travel Log Vault: exit metadata from a process's LAST crashed run, persisted
- * across daemon restarts so the next start() attempt can proactively surface it.
- */
-export interface LastCrash {
-  exitCode: number | null;
-  endedAt: number; // ms epoch
-  stderrTail: string[];
-}
-
 /** Editable shape sent to the daemon when creating/updating a process. */
 export interface ProcessInput {
   id: string;

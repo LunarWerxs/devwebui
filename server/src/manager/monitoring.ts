@@ -6,8 +6,6 @@ import type { LogLine } from "../types";
 import { ManagerBase } from "./base";
 import { MAX_LOGS, type Entry } from "./types";
 
-const STDERR_RING = 20; // matches log-vault's STDERR_TAIL_LINE_COUNT — the crash-tail hint size
-
 /**
  * The polling/diagnostics loop: live-log ingestion, the 2s port-probe +
  * error-flush tick, and the batched CPU/memory sampling tick. Implements the
@@ -27,10 +25,6 @@ export class ManagerWithMonitoring extends ManagerBase {
       // noisy child can't fan out one SSE write per line to every connected client.
       this.logBatcher.push(line);
       fileLines.push(`${new Date(line.ts).toISOString()} [${stream}] ${raw}`);
-      if (stream === "stderr") {
-        e.recentStderr.push(raw);
-        if (e.recentStderr.length > STDERR_RING) e.recentStderr.shift();
-      }
     }
     // Time-Travel Log Vault: append-through to the rotating on-disk file so history
     // survives a daemon restart (the in-memory `logs` ring above is capped + volatile).

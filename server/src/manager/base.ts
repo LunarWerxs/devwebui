@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import treeKill from "tree-kill";
 import { diagnose, type Diagnosis } from "../diagnose";
 import { ErrorRecorder, type ErrorInfo } from "../errors";
-import { readLastCrash, tailLog, type LastCrash } from "../log-vault";
+import { tailLog } from "../log-vault";
 import type { RuntimePref } from "../runtime";
 import { getEnabledOverride, getProjectOverride } from "../state";
 import type { LogLine, ProcessDef, ProcessView, ProjectView, Status } from "../types";
@@ -158,11 +158,6 @@ export abstract class ManagerBase extends EventEmitter {
     return tailLog(id, lines);
   }
 
-  /** The most recent crash's exit metadata + stderr tail for a process, or null if none recorded. */
-  getLastCrash(id: string): LastCrash | null {
-    return readLastCrash(id);
-  }
-
   // ---- enable/disable: PERSISTED PREFERENCE ONLY ---------------------------
   // Toggling never starts or stops a live process (use start/stop for that). It
   // only records what should auto-start next time the project loads.
@@ -218,7 +213,6 @@ export abstract class ManagerBase extends EventEmitter {
       portInUse: false,
       waitingOnPort: null,
       logs: [],
-      recentStderr: [],
       stopping: false,
       pendingStart: false,
       exitWaiters: [],

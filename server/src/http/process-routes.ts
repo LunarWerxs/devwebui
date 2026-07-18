@@ -182,24 +182,19 @@ export function registerProcessRoutes(app: Hono, manager: Manager) {
   app.post(ROUTES.processAction.pattern, async (c) => {
     const { id, action } = c.req.param();
     if (!manager.view(id)) return fail(c, "unknown process", 404);
-    // Time-Travel Log Vault killer detail: start() returns the PREVIOUS run's crash
-    // metadata (if it crashed) so the GUI can show "last time this failed with …".
     // A linked group acts as one unit: startWithLinks also brings up the linked
     // group + project companions; stopWithLinks brings the linked group down.
     // `coStarted`/`coStopped` list the OTHER processes the action set in motion,
     // so the GUI (and MCP callers) can surface the ripple.
-    let lastCrash = null;
     let coStarted: string[] | undefined;
     let coStopped: string[] | undefined;
     if (action === "start") {
-      const res = manager.startWithLinks(id);
-      lastCrash = res.lastCrash;
-      coStarted = res.coStarted;
+      coStarted = manager.startWithLinks(id).coStarted;
     } else if (action === "stop") coStopped = await manager.stopWithLinks(id);
     else if (action === "restart") await manager.restart(id);
     else if (action === "enable") manager.setProcessEnabled(id, true);
     else if (action === "disable") manager.setProcessEnabled(id, false);
     else return fail(c, "unknown action");
-    return c.json({ ok: true, process: manager.view(id), lastCrash, coStarted, coStopped });
+    return c.json({ ok: true, process: manager.view(id), coStarted, coStopped });
   });
 }

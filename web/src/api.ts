@@ -6,7 +6,6 @@ import type {
   AddResult,
   DetectedProcess,
   FreePortResult,
-  LastCrash,
   ScanPreset,
   ScanResult,
   Settings,
@@ -25,7 +24,6 @@ export type {
   DetectedProcess,
   FoundFile,
   FreePortResult,
-  LastCrash,
   PortOwner,
   ProjectProposal,
   RuntimePref,
@@ -61,16 +59,13 @@ export const getProcessLogFile = (id: string, lines?: number) =>
 // ---- process / project actions (state arrives back via SSE) ----
 const post = (path: string) => req(path, { method: "POST" });
 /**
- * Start a process. Time-Travel Log Vault: the response carries `lastCrash` — the
- * PREVIOUS run's exit metadata + stderr tail — when that run ended in a crash, so
- * the caller can surface "last time this failed with …" (see useLastCrashHint).
- * `coStarted` lists the linked/companion processes the action also set in motion.
+ * Start a process. `coStarted` lists the linked/companion processes the action
+ * also set in motion.
  */
 export const start = (id: string) =>
-  reqJson<{ ok: boolean; lastCrash: LastCrash | null; coStarted?: string[] }>(
-    ROUTES.processAction.build(id, "start"),
-    { method: "POST" },
-  );
+  reqJson<{ ok: boolean; coStarted?: string[] }>(ROUTES.processAction.build(id, "start"), {
+    method: "POST",
+  });
 /** Stop a process. `coStopped` lists the linked processes brought down with it. */
 export const stop = (id: string) =>
   reqJson<{ ok: boolean; coStopped?: string[] }>(ROUTES.processAction.build(id, "stop"), {
