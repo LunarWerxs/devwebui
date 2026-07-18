@@ -17,7 +17,7 @@
 // notice the write and call it. That is why auto-reload is safe: editing a file to add
 // a server never disturbs the servers already running.
 //
-// Four things it has to get right, each of which breaks a naive `watch(file)`:
+// Five things it has to get right, each of which breaks a naive `watch(file)`:
 //
 //   1. WATCH THE DIRECTORY, NOT THE FILE. Editors (and `git checkout`, and any
 //      write-temp-then-rename) save ATOMICALLY: the original inode is replaced, not
@@ -37,6 +37,16 @@
 //      Belt-and-braces: reconcileProject is idempotent, so the duplicate would be
 //      harmless anyway — by the time our event lands, the route has already applied
 //      the same def and `execChanged` is false, so nothing restarts.
+//   5. TREAT THE EVENT'S FILENAME AS ADVISORY. It is the least portable part of
+//      fs.watch. For an atomic save, Windows reports both the old and the new name, so
+//      the destination `.devwebui` shows up; Linux and macOS report the event against
+//      the TEMP file, or omit the name entirely, and never name the destination. Keying
+//      the re-check off that name therefore missed precisely the save style rule 1
+//      exists to survive, and it did so on 2 of the 3 platforms we ship (caught by CI
+//      2026-07-18, after a Windows-only local run passed). So the name is ignored: any
+//      event in a watched dir re-checks that dir's watched files. A spurious check
+//      costs one small read and changes nothing, because rule 4 byte-compares before
+//      doing any work, and rule 2 coalesces a burst into a single check.
 //
 // The watch set self-syncs off the manager's "projects" event — the same signal the
 // GUI listens to — so loading or removing a project adjusts the watchers with no call
@@ -132,16 +142,13 @@ export class ProjectWatcher {
       const dirKey = keyOf(dir);
       if (this.dirWatchers.has(dirKey)) continue;
       try {
-        const w = watch(dir, { persistent: false }, (_event, filename) => {
-          if (filename == null) {
-            // Some platforms omit the name — re-check every file we watch in this dir.
-            for (const [k, f] of this.realPath) {
-              if (keyOf(path.dirname(f)) === dirKey) this.schedule(k);
-            }
-            return;
+        // The reported filename is ADVISORY, so it is never used to decide whether to
+        // re-check (see rule 5). Every event in a watched dir re-checks that dir's
+        // watched files.
+        const w = watch(dir, { persistent: false }, () => {
+          for (const [k, f] of this.realPath) {
+            if (keyOf(path.dirname(f)) === dirKey) this.schedule(k);
           }
-          const k = keyOf(path.join(dir, filename.toString()));
-          if (this.lastText.has(k)) this.schedule(k);
         });
         // A watched dir being renamed/removed surfaces here; drop the watcher rather
         // than let an unhandled 'error' event take the daemon down with it.
