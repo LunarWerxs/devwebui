@@ -3,6 +3,7 @@ import { Manager } from "./manager";
 import { createApp } from "./http";
 import { applyToManager } from "./http/connections-routes";
 import { readDevWebUIFile, readRegistry } from "./projects";
+import { startProjectWatch } from "./project-watch";
 import { materializeSettings, readSettings } from "./runtime";
 import { initConnections, pullNow, syncStatus } from "./connections";
 import { daemonPort } from "./constants";
@@ -133,6 +134,12 @@ for (const file of readRegistry()) {
   }
 }
 
+// That loop is the ONLY time a project's file is read at boot, and the daemon outlives
+// any edit — so from here on, watch each loaded file and re-read it when it changes.
+// Without this, a `.devwebui` edit stays invisible until the daemon restarts: the GUI
+// renders what the daemon holds, so reloading the browser can't surface it.
+const projectWatcher = startProjectWatch(manager);
+
 // Advertise where we actually landed, then keep it tidy on a clean exit. (A hard
 // kill skips this; readers re-validate the pointer with /api/health, so a stale
 // file is harmless.) `portableMode`/`hideTrayIcon` ride along as launcher-facing
@@ -157,6 +164,7 @@ async function shutdown(exitCode = 0, exitDelayMs = 0): Promise<void> {
   try {
     cleanup();
     stopAutoUpdate();
+    projectWatcher.stop();
     await manager.stopAll();
   } catch (e) {
     console.error(`[devwebui] clean shutdown failed: ${(e as Error).message}`);
