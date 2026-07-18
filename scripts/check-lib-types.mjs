@@ -84,7 +84,7 @@ function declaredValueExports(file) {
   // Top-level exports in a .d.mts begin a line (optional indent). Continuation lines of a
   // multi-line signature never start with `export`, so a first-line scan sees every declaration.
   const lines = text.split(/\r?\n/);
-  for (let raw of lines) {
+  for (const raw of lines) {
     const line = raw.trim();
     if (!line.startsWith("export")) continue;
     let rest = line.slice("export".length);
@@ -104,7 +104,7 @@ function declaredValueExports(file) {
     if (rest.startsWith("{")) {
       // Named clause. Kit uses single-line clauses; join forward defensively if a `}` is missing.
       let clause = rest;
-      if (!clause.includes("}")) clause += " " + line; // best-effort; flagged below if still open
+      if (!clause.includes("}")) clause += ` ${line}`; // best-effort; flagged below if still open
       const inner = clause.slice(clause.indexOf("{") + 1, clause.indexOf("}"));
       if (clause.indexOf("}") === -1) {
         unsupported.push("multi-line `export { ... }` clause is not analyzable");
