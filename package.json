@@ -33,6 +33,7 @@
     "devwebui": "./server/src/cli.ts"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "cli": "bun server/src/cli.ts",
     "dev": "bun server/src/dev.ts",
     "daemon": "bun server/src/index.ts",
