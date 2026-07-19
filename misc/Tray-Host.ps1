@@ -264,16 +264,41 @@ function Start-TrayHost($Config) {
         return [bool]$r.ok
       } catch { return $false }
     }
+    # Health-probe a URL, but ONLY if something is actually bound to its port.
+    #
+    # Invoke-RestMethod does NOT fail fast on a refused local connection — it burns the whole
+    # -TimeoutSec (measured on loopback: ~1.0s at -TimeoutSec 1, ~2.0s at 2). Get-RunningUrl can
+    # probe twice, and the health timer runs on the WinForms UI THREAD, so a plainly-dead daemon
+    # used to freeze the tray menu for two full timeouts EVERY tick. GetActiveTcpListeners answers
+    # "is anything bound to this port" in ~1ms with no timeout at all.
+    #
+    # This can only skip a probe that was already certain to fail: the listener check matches on
+    # port alone (any address, IPv4 AND IPv6), so anything listening still falls through to the
+    # real /api/health call. Net effect: a dead daemon is detected instantly, and the generous
+    # HTTP timeout is spent only where it does some good — on a daemon that IS up but busy.
+    function Test-DaemonAt($u, $service) {
+      if (-not $u) { return $false }
+      $p = Get-PortFromUrl $u
+      if ($p -gt 0 -and -not (Test-PortListening $p)) { return $false }
+      return (Test-Daemon $u $service)
+    }
     # The URL of a live instance (runtime pointer, else preferred port), or $null.
     function Get-RunningUrl($infoFile, $port, $service, $urlHost) {
+      $fallback = "http://${urlHost}:$port"
+      $pointerUrl = $null
       if (Test-Path $infoFile) {
         try {
           $info = Get-Content $infoFile -Raw | ConvertFrom-Json
-          if ($info.url -and (Test-Daemon $info.url $service)) { return $info.url }
+          if ($info.url) {
+            $pointerUrl = $info.url
+            if (Test-DaemonAt $info.url $service) { return $info.url }
+          }
         } catch { }
       }
-      $u = "http://${urlHost}:$port"
-      if (Test-Daemon $u $service) { return $u }
+      # When the pointer already named the preferred port there is nothing new to try: probing the
+      # same hung endpoint a second time only doubles the stall for an answer we already have.
+      if ($pointerUrl -eq $fallback) { return $null }
+      if (Test-DaemonAt $fallback $service) { return $fallback }
       return $null
     }
     function Get-PortFromUrl($u) { try { return ([uri]$u).Port } catch { return 0 } }
