@@ -35,6 +35,7 @@ import { closeSync, mkdirSync, openSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ROUTES } from "../../shared/routes";
+import type { ScanResult } from "../../shared/dto";
 import { daemonUrl, focusPath } from "../../shared/constants";
 import { dataDir } from "./data-dir";
 import { findLiveInstance, readInstanceInfo, type InstanceInfo } from "./instance";
@@ -440,6 +441,131 @@ async function openCmd(kind: "process" | "project", args: Args): Promise<void> {
   console.log(kind === "project" ? `Started project ${projectId}.` : `Started ${localId}.`);
 }
 
+/**
+ * Drag-and-drop entry point for the desktop shortcut. The tray adapter (misc/DevWebUI-Tray.ps1)
+ * runs `devwebui open <path>` for each path dropped onto the .lnk:
+ *   · a FOLDER      → scoped-scan it and ADD every .devwebui project + detectable dev-server
+ *                     folder found (register only; the user asked for "add", not "run").
+ *   · a .devwebui   → load it and START its servers, exactly like a project shortcut.
+ * Boots the daemon first if it isn't already up (shared boot lock, like open-process/-project).
+ */
+async function openDropCmd(args: Args): Promise<void> {
+  const paths = args._;
+  if (!paths.length) throw new UsageError("Usage: devwebui open <folder-or-.devwebui> [more…]");
+
+  let live = await findLiveInstance();
+  if (!live) live = await bootDaemonShared({ ...process.env });
+  if (!live)
+    throw new Error(
+      "DevWebUI's daemon didn't start within 20s — run `devwebui start --foreground` to see why.",
+    );
+
+  let startedAProject = false;
+  for (const raw of paths) {
+    const abs = path.resolve(raw);
+    let isDir: boolean;
+    try {
+      isDir = statSync(abs).isDirectory();
+    } catch {
+      console.error(`Skipped (not found): ${abs}`);
+      continue;
+    }
+    if (isDir) {
+      await addFolder(abs);
+    } else if (abs.toLowerCase().endsWith(".devwebui")) {
+      await startProjectFile(abs);
+      startedAProject = true;
+    } else {
+      console.error(`Skipped (not a folder or a .devwebui file): ${abs}`);
+    }
+  }
+
+  // A started project already opened its own window; otherwise show the dashboard so the user
+  // sees what was added. Best-effort — the work is done regardless of whether a browser exists.
+  if (!startedAProject) {
+    try {
+      await api(ROUTES.portableWindow, jsonPost({ path: "/" }));
+    } catch {
+      /* the server is up; the window is a convenience */
+    }
+  }
+}
+
+/** Load a dropped .devwebui (only if not already loaded — see the hard-reload note on openCmd)
+ *  and start its project, so every server it defines comes up. */
+async function startProjectFile(abs: string): Promise<void> {
+  const projectId = projectIdFromPath(abs);
+  const projects = await api<ProjectView[]>(ROUTES.projects);
+  if (!projects.some((p) => p.id === projectId)) {
+    await api(ROUTES.projectsLoad, jsonPost({ path: abs }));
+  }
+  await api(ROUTES.projectAction.build(projectId, "start"), { method: "POST" });
+  try {
+    await api(ROUTES.portableWindow, jsonPost({ path: "/" }));
+  } catch {
+    /* window is a convenience */
+  }
+  console.log(`Started ${projectId} (${path.basename(abs)}).`);
+}
+
+/** Scoped-scan a dropped folder. A NEW project is ADDED (registered, not started) — a .devwebui
+ *  already on disk is loaded as-is; a detected dev-server folder gets one scaffolded from its
+ *  scripts. A project that is ALREADY added is STARTED instead (owner request: re-dropping a folder
+ *  you've already added is how you run it). */
+async function addFolder(dir: string): Promise<void> {
+  const scan = await api<ScanResult>(
+    ROUTES.projectsScan,
+    jsonPost({ roots: [dir], preset: "scoped", detectPackages: true }),
+  );
+  const existing = new Set((await api<ProjectView[]>(ROUTES.projects)).map((p) => p.id));
+  let added = 0;
+  let started = 0;
+
+  // Configured projects (a .devwebui on disk): already added → start it; otherwise → add it.
+  for (const f of scan.files) {
+    const id = projectIdFromPath(f.path);
+    try {
+      if (existing.has(id)) {
+        await api(ROUTES.projectAction.build(id, "start"), { method: "POST" });
+        started++;
+      } else {
+        await api(ROUTES.projectsLoad, jsonPost({ path: f.path }));
+        added++;
+      }
+    } catch (e) {
+      console.error(`  skipped ${f.path}: ${(e as Error).message}`);
+    }
+  }
+  // Detected dev-server folders have no .devwebui yet, so they can never be already-added — scaffold
+  // one from the detected scripts, and it becomes a registered project.
+  for (const d of scan.detected) {
+    try {
+      const res = await api<{
+        ok?: boolean;
+        needsScaffold?: boolean;
+        dir?: string;
+        fileName?: string;
+        proposal?: unknown;
+      }>(ROUTES.projectsLoad, jsonPost({ path: d.path }));
+      if (res.needsScaffold && res.dir && res.proposal) {
+        await api(
+          ROUTES.projectsScaffold,
+          jsonPost({ dir: res.dir, fileName: res.fileName, project: res.proposal }),
+        );
+        added++;
+      } else if (res.ok) {
+        added++;
+      }
+    } catch (e) {
+      console.error(`  skipped ${d.path}: ${(e as Error).message}`);
+    }
+  }
+  console.log(
+    `Scanned ${dir} — added ${added}, started ${started} already-added ` +
+      `(${scan.files.length} configured, ${scan.detected.length} detected).`,
+  );
+}
+
 function printHelp(): void {
   console.log(`devwebui — run & drive DevWebUI from the command line
 
@@ -463,6 +589,9 @@ Desktop shortcuts (what a .lnk from "Add desktop shortcut" runs):
                                              needed, start that process (+ its linked group)
                                              and open its focused window
   devwebui open-project <file.devwebui>      Same, for every process in the project
+  devwebui open <folder | file.devwebui>     Drag-and-drop handler: a FOLDER is scanned and its
+                                             projects/dev-servers are ADDED; a .devwebui file is
+                                             loaded and STARTED. Boots the daemon if needed.
 
 Connection: DEVWEBUI_URL / DEVWEBUI_PORT override the daemon location.`);
 }
@@ -512,6 +641,9 @@ export async function main(argv: string[]): Promise<void> {
       break;
     case "open-project":
       await openCmd("project", args);
+      break;
+    case "open":
+      await openDropCmd(args);
       break;
     case "mcp":
       // Run the stdio MCP server IN THIS PROCESS (it connects StdioServerTransport on import),

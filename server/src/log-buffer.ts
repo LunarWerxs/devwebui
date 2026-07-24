@@ -24,10 +24,18 @@ export class LogBuffer {
 
   /** Queue a line; arm a single flush timer that subsequent lines ride along with. */
   push(line: LogLine): void {
-    const tail = (this.head + this.count) % MAX_PENDING_LOGS;
-    this.ring[tail] = line;
-    if (this.count < MAX_PENDING_LOGS) this.count++;
-    else this.head = (this.head + 1) % MAX_PENDING_LOGS; // overwrote the oldest slot — shed it
+    this.pushMany([line]);
+  }
+
+  /** Queue a whole child-output chunk without repeating timer/bookkeeping work per line. */
+  pushMany(lines: readonly LogLine[]): void {
+    for (const line of lines) {
+      const tail = (this.head + this.count) % MAX_PENDING_LOGS;
+      this.ring[tail] = line;
+      if (this.count < MAX_PENDING_LOGS) this.count++;
+      else this.head = (this.head + 1) % MAX_PENDING_LOGS; // overwrote the oldest slot — shed it
+    }
+    if (!lines.length) return;
     if (this.timer) return;
     this.timer = setTimeout(() => this.flush(), LOG_FLUSH_MS);
   }

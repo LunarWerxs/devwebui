@@ -3,6 +3,7 @@ import treeKill from "tree-kill";
 import type { FreePortResult, PortOwner } from "../../../shared/dto";
 import { freePort, isPortListening, killPids, portOwners } from "../ports";
 import { effectiveRuntime, withRuntime } from "../runtime";
+import { planManagedSpawn } from "../spawn-plan";
 import { setEnabledOverride, setProjectOverride } from "../state";
 import type { ProcessDef, Status } from "../types";
 import { ManagerWithMonitoring } from "./monitoring";
@@ -190,25 +191,31 @@ export class ManagerWithLifecycle extends ManagerWithMonitoring {
     // The async free-port window means state may have moved on — bail if so.
     if (e.child || e.stopping || this.entries.get(e.def.id) !== e || e.status !== "starting")
       return;
-    const command = withRuntime(e.def.command, effectiveRuntime(e.def.runtime, this.globalRuntime));
+    const command = withRuntime(
+      e.def.command,
+      effectiveRuntime(e.def.runtime, this.globalRuntime, e.def.detectedRuntime),
+    );
+    const env = { ...process.env, ...e.def.env };
+    // Spawn the server DIRECTLY (no cmd.exe/sh wrapper) when the command is a plain
+    // executable invocation — which is what `bun …`/`node …` dev servers are — and fall back
+    // to `shell: true` only for commands that need a shell (operators, `%VAR%`, `.cmd`/`.bat`
+    // shims like npm/vite, odd quoting). The direct path is what stops Task Manager filling
+    // with one persistent `cmd.exe` per running server. See server/src/spawn-plan.ts for the
+    // exact safe subset and why direct spawn is equivalent there.
+    //
+    // `windowsHide` (CREATE_NO_WINDOW) stays on BOTH paths. It's redundant on the direct path
+    // (a directly-spawned bun/node inherits the daemon's console state), but on the shell
+    // fallback it's load-bearing: `cmd /d /s /c` is a console program, and a desktop shortcut
+    // boots the daemon detached with no console, so Windows would otherwise give each shell a
+    // brand-new console that Windows Terminal hosts as a real window for the server's lifetime.
+    // Harmless with the piped stdio below — the console is only ever a window, never our logs.
+    const plan = planManagedSpawn(command, { cwd: e.def.cwd, env });
     let child: ChildProcess;
     try {
-      child = spawn(command, {
-        cwd: e.def.cwd,
-        env: { ...process.env, ...e.def.env },
-        shell: true,
-        // shell:true runs the command under `cmd /d /s /c`, a console program. Whether that
-        // pops a VISIBLE console depends on the console the daemon itself owns, so it only
-        // misbehaves on some launch paths: under the tray the daemon is started with
-        // CreateNoWindow and children inherit that headless console, but a desktop shortcut
-        // boots the daemon detached (cli.ts, DETACHED_PROCESS) with NO console at all — and
-        // then Windows gives each managed dev server a brand-new console of its own, which
-        // Windows Terminal (when set as the default terminal) hosts as a real window that
-        // stays up for the life of the server. windowsHide (CREATE_NO_WINDOW) makes the
-        // outcome the same on every path. Safe with the piped stdio below: the console is
-        // only ever a window, never where our logs come from.
-        windowsHide: true,
-      });
+      child =
+        plan.shell === false
+          ? spawn(plan.file, plan.args, { cwd: e.def.cwd, env, windowsHide: true })
+          : spawn(plan.command, { cwd: e.def.cwd, env, shell: true, windowsHide: true });
     } catch (err) {
       this.handleSpawnError(e, null, err);
       return;

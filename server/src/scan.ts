@@ -181,9 +181,10 @@ export interface ScanOptions {
   signal?: AbortSignal; // abort the walk when the requesting client disconnects
 }
 
-// Single-flight + serialize the scanner. Two protections in one: identical in-flight
-// requests share a single walk, and at most ONE walk runs at a time daemon-wide — so
-// overlapping broad scans queue instead of stacking 2×concurrency readdir() storms.
+// Single-flight + serialize the scanner. Signal-less identical requests share a walk,
+// and at most ONE walk runs at a time daemon-wide — so overlapping broad scans queue
+// instead of stacking 2×concurrency readdir() storms. Request-owned abort signals are
+// kept independent below so one disconnected client cannot cancel another caller's scan.
 let scanChain: Promise<unknown> = Promise.resolve();
 const inflight = new Map<string, Promise<ScanResult>>();
 
@@ -197,17 +198,21 @@ export function scanForDevWebUI(opts: ScanOptions = {}): Promise<ScanResult> {
     limit: rest.limit ?? base?.limit,
   };
   const key = JSON.stringify(merged); // identical request signature (signal excluded)
-  const existing = inflight.get(key);
+  // A request-owned AbortSignal cannot safely own a shared scan: one browser navigating away
+  // would cancel the result for every other identical caller. Signal-less background scans can
+  // still coalesce; abortable HTTP scans remain serialized by scanChain but are independent.
+  const shareable = !signal;
+  const existing = shareable ? inflight.get(key) : undefined;
   if (existing) return existing;
   const tracked = scanChain
     .catch(() => {}) // scanChain is a serialization baton, not a result — a prior scan's
     // failure must not block this one from running, so swallow and proceed
     .then(() => runScan({ ...merged, signal }))
     .finally(() => {
-      if (inflight.get(key) === tracked) inflight.delete(key);
+      if (shareable && inflight.get(key) === tracked) inflight.delete(key);
     });
   scanChain = tracked.catch(() => {}); // next scan waits for this one to finish
-  inflight.set(key, tracked);
+  if (shareable) inflight.set(key, tracked);
   return tracked;
 }
 
@@ -290,7 +295,12 @@ async function runScan(opts: ScanOptions = {}): Promise<ScanResult> {
       files.length + detected.length < limit
     ) {
       const found = await describeDetected(dir);
-      if (found) detected.push(found);
+      // Other concurrent directories may have filled the shared result cap while package.json
+      // was being inspected.
+      if (found && !settled && !timedOut) {
+        if (files.length + detected.length < limit) detected.push(found);
+        else truncated = true;
+      }
     }
     return subdirs;
   }
@@ -298,6 +308,7 @@ async function runScan(opts: ScanOptions = {}): Promise<ScanResult> {
   // Continuous work-pool: keep `concurrency` directories in flight at once across ALL
   // roots/depths, so a huge home tree never starves the other drives (level-by-level did).
   const queue: { dir: string; depth: number }[] = roots.map((dir) => ({ dir, depth: 0 }));
+  let queueHead = 0;
   let active = 0;
   await new Promise<void>((resolve) => {
     let onAbort: (() => void) | null = null;
@@ -337,8 +348,9 @@ async function runScan(opts: ScanOptions = {}): Promise<ScanResult> {
         settle();
         return;
       }
-      while (active < concurrency && queue.length) {
-        const { dir, depth } = queue.shift()!;
+      while (active < concurrency && queueHead < queue.length) {
+        // Indexed FIFO avoids copying a potentially huge directory frontier on every visit.
+        const { dir, depth } = queue[queueHead++]!;
         active++;
         scanDir(dir, depth)
           .then((subs) => {
@@ -350,7 +362,7 @@ async function runScan(opts: ScanOptions = {}): Promise<ScanResult> {
             pump();
           });
       }
-      if (active === 0 && queue.length === 0) settle();
+      if (active === 0 && queueHead >= queue.length) settle();
     };
     pump();
   });

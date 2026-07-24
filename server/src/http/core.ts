@@ -223,6 +223,7 @@ export function registerSystemRoutes(app: Hono, manager: Manager, options: Creat
       monitorResources: optBool(body.monitorResources),
       linkHost: typeof body.linkHost === "string" ? body.linkHost : undefined,
       autoScan: optBool(body.autoScan),
+      firstScanDone: optBool(body.firstScanDone),
       scanExclude: Array.isArray(body.scanExclude) ? body.scanExclude : undefined,
       skipWindows: optBool(body.skipWindows),
       skipMac: optBool(body.skipMac),

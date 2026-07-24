@@ -11,6 +11,7 @@ import { existsSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import {
   appendLog,
+  BufferedLogWriter,
   LOG_ROTATION_KEEP,
   LOG_ROTATION_MAX_BYTES,
   logVaultDir,
@@ -66,6 +67,17 @@ test("appendLog is a no-op for an empty batch", () => {
   const id = uniqueId("noop");
   appendLog(id, []);
   expect(tailLog(id, 10)).toEqual([]);
+});
+
+test("BufferedLogWriter holds a burst and flushes it in process order", () => {
+  const id = uniqueId("buffered");
+  const writer = new BufferedLogWriter();
+  writer.push(id, ["one", "two"]);
+  writer.push(id, ["three"]);
+  expect(tailLog(id, 10)).toEqual([]);
+  writer.flush();
+  expect(tailLog(id, 10)).toEqual(["one", "two", "three"]);
+  writer.dispose();
 });
 
 // ---- rotation ---------------------------------------------------------------

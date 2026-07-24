@@ -6,6 +6,37 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Folders and `.devwebui` files can be opened directly.** The new `devwebui open <path>`
+  command is the drag-and-drop entry point used by the Windows launcher. A dropped folder is
+  scanned for configured or detectable projects; new projects are registered, while dropping an
+  already-registered project starts it.
+- **Runtime selection now follows each project's lockfile.** With the global runtime set to
+  `auto`, Bun lockfiles select Bun and npm, Yarn, or pnpm lockfiles select Node. An explicit
+  per-process runtime remains the highest-priority override.
+
+### Changed
+
+- **Plain Bun, Node, and executable commands start without a permanent shell wrapper.** Commands
+  that need shell syntax or a `.cmd`/`.bat` shim still use the shell, while safely tokenizable
+  executable commands launch directly. This removes the extra `cmd.exe` process previously shown
+  for every compatible managed server on Windows.
+- **Machine scanning is quieter after setup.** A new installation performs one discovery scan so
+  the first dashboard is useful, then leaves automatic startup scans disabled unless the user
+  explicitly enables them.
+- **High-volume logs use bounded batching.** Live log rings, SSE delivery, and disk persistence
+  now trim and flush per batch instead of repeatedly shifting arrays or performing a synchronous
+  append for every child-output event.
+
+### Fixed
+
+- **The live error feed matches the current-process view.** Errors from an earlier daemon session
+  or an older run no longer reappear through SSE after the snapshot and HTTP views have filtered
+  them out.
+- **Updater integration tests use the actual runtime executable.** This keeps JavaScript arguments
+  intact on Windows installations where `bun` on `PATH` is an npm command shim.
+
 ## [0.5.2] - 2026-07-16
 
 ### Fixed

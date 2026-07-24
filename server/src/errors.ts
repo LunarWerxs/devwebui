@@ -28,6 +28,30 @@ export function stripAnsi(s: string): string {
   return s.replace(ANSI, "");
 }
 
+/**
+ * Is this a *current* error — one worth surfacing in the GUI right now — as
+ * opposed to a stale record that only lives on for post-mortem diagnosis?
+ *
+ * The persisted log (below) deliberately survives daemon restarts, but a record
+ * from a PREVIOUS session (or from a process's PREVIOUS run) is not a live problem
+ * and must never greet the user on launch — that phantom "1 error" on boot is
+ * exactly the bug this predicate exists to kill. An error is current when:
+ *   1. it was last seen during THIS daemon session (`lastSeen >= bootedAt`), AND
+ *   2. it isn't stranded before the process's current run — if the process is
+ *      running now (`runStartedAt` set) the error must be from that run.
+ * A crashed/stopped process has `runStartedAt == null`, so a crash it just logged
+ * still counts (there's no live run to post-date it) — as it should.
+ */
+export function isErrorActive(
+  e: ErrorEvent,
+  bootedAt: number,
+  runStartedAt: number | null,
+): boolean {
+  if (e.lastSeen < bootedAt) return false; // recorded in a previous daemon session
+  if (runStartedAt != null && e.lastSeen < runStartedAt) return false; // before the current run
+  return true;
+}
+
 export interface ErrorInfo {
   processId: string;
   localId: string;

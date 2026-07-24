@@ -11,7 +11,7 @@
 //          `bun x.js`       -> `node x.js`        (run the file under Node)
 // `npm run …`, `bunx …`, and everything else are left alone.
 // ---------------------------------------------------------------------------
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { dataDir } from "./data-dir";
 import { OS_SKIP, type SkipOs } from "./scan";
@@ -113,7 +113,8 @@ export function readSettings(): Settings {
       autoStartOnLaunch: bool(s.autoStartOnLaunch, false),
       monitorResources: bool(s.monitorResources, true),
       linkHost: cleanStr(s.linkHost, DEFAULT_LINK_HOST),
-      autoScan: bool(s.autoScan, true),
+      autoScan: bool(s.autoScan, false),
+      firstScanDone: bool(s.firstScanDone, false),
       scanExclude: cleanExclude(s.scanExclude),
       skipWindows: bool(s.skipWindows, d.skipWindows),
       skipMac: bool(s.skipMac, d.skipMac),
@@ -139,7 +140,8 @@ export function readSettings(): Settings {
       autoStartOnLaunch: false,
       monitorResources: true,
       linkHost: DEFAULT_LINK_HOST,
-      autoScan: true,
+      autoScan: false,
+      firstScanDone: false,
       scanExclude: [],
       ...d,
       osSkip: readOsSkip(null, OS_SKIP),
@@ -164,6 +166,7 @@ export function writeSettings(patch: Partial<Settings>): Settings {
     monitorResources: bool(patch.monitorResources, cur.monitorResources),
     linkHost: patch.linkHost !== undefined ? cleanStr(patch.linkHost, cur.linkHost) : cur.linkHost,
     autoScan: patch.autoScan !== undefined ? !!patch.autoScan : cur.autoScan,
+    firstScanDone: patch.firstScanDone !== undefined ? !!patch.firstScanDone : cur.firstScanDone,
     scanExclude:
       patch.scanExclude !== undefined ? cleanExclude(patch.scanExclude) : cur.scanExclude,
     skipWindows: bool(patch.skipWindows, cur.skipWindows),
@@ -208,11 +211,39 @@ export function materializeSettings(): void {
   writeSettings({});
 }
 
-/** Resolve the effective runtime for a process given its pin + the global default. */
+// Lockfiles that identify a project's package manager → the runtime its scripts expect. Bun's own
+// lockfiles mean "run under Bun"; the Node package managers (npm/yarn/pnpm) mean "run under Node".
+// Mirrors detect.ts's lockfile-only strategy (no packageManager field, no upward walk) so a
+// freshly-scaffolded project and an auto-detected existing one agree on the runtime.
+const BUN_LOCKFILES = ["bun.lock", "bun.lockb"];
+const NODE_LOCKFILES = ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml"];
+
+/**
+ * Detect which runtime a project's scripts expect from the lockfile in `dir`, or undefined if
+ * there's no clear signal (no lockfile). This is what makes the `auto` setting genuinely
+ * automatic: a Bun project whose command still literally says `node …/vite.js` gets run under
+ * Bun without any per-process pin, and a Node project's `bun x.js` gets run under Node — each
+ * matched to how the project actually installs. A cheap synchronous check, run once at load.
+ */
+export function detectProjectRuntime(dir: string): Runtime | undefined {
+  for (const f of BUN_LOCKFILES) if (existsSync(path.join(dir, f))) return "bun";
+  for (const f of NODE_LOCKFILES) if (existsSync(path.join(dir, f))) return "node";
+  return undefined;
+}
+
+/**
+ * Resolve the effective runtime for a process. Precedence, highest first:
+ *   1. the process's explicit `runtime` pin (a deliberate per-process override always wins);
+ *   2. an explicit global setting of `node`/`bun` (the user forcing one everywhere);
+ *   3. under `auto`, the project's detected runtime (from its lockfile) — this is the "just do
+ *      the right thing per project" behaviour; undefined here means "leave the command as written".
+ */
 export function effectiveRuntime(
   processRuntime: Runtime | undefined,
   global: RuntimePref,
+  projectRuntime?: Runtime,
 ): Runtime | undefined {
   if (processRuntime) return processRuntime;
-  return global === "auto" ? undefined : global;
+  if (global !== "auto") return global;
+  return projectRuntime;
 }

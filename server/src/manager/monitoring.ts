@@ -1,5 +1,4 @@
 import { stripAnsi } from "../errors";
-import { appendLog } from "../log-vault";
 import { sampleMetrics } from "../metrics";
 import { isPortListening } from "../ports";
 import type { LogLine } from "../types";
@@ -16,19 +15,24 @@ export class ManagerWithMonitoring extends ManagerBase {
   protected addLog(e: Entry, stream: LogLine["stream"], text: string): void {
     const clean = stripAnsi(text);
     const fileLines: string[] = [];
+    const liveLines: LogLine[] = [];
     for (const raw of clean.split(/\r?\n/)) {
       if (!raw) continue;
       const line: LogLine = { id: e.def.id, stream, line: raw, ts: Date.now() };
       e.logs.push(line);
-      if (e.logs.length > MAX_LOGS) e.logs.shift();
-      // Don't emit per line — the batcher coalesces a burst into one "log" event so a
-      // noisy child can't fan out one SSE write per line to every connected client.
-      this.logBatcher.push(line);
+      liveLines.push(line);
       fileLines.push(`${new Date(line.ts).toISOString()} [${stream}] ${raw}`);
     }
+    // Trim once per child-output chunk, not once per line. Array.shift() copied the remaining
+    // 499 entries for every line after the cap during a sustained log flood.
+    if (e.logs.length > MAX_LOGS) e.logs.splice(0, e.logs.length - MAX_LOGS);
+    // Don't emit per line — the batcher coalesces a burst into one "log" event so a
+    // noisy child can't fan out one SSE write per line to every connected client.
+    this.logBatcher.pushMany(liveLines);
     // Time-Travel Log Vault: append-through to the rotating on-disk file so history
-    // survives a daemon restart (the in-memory `logs` ring above is capped + volatile).
-    appendLog(e.def.id, fileLines);
+    // survives a daemon restart. The writer coalesces chunks briefly to avoid blocking
+    // the daemon on a synchronous stat + append for every stdout/stderr data event.
+    this.logVaultWriter.push(e.def.id, fileLines);
     // Record the whole chunk as ONE error candidate, so a multi-line stack trace
     // becomes a single de-duplicated record rather than one record per line.
     this.errors.record(this.errorInfo(e), stream === "stderr" ? "stderr" : "stdout", clean);
@@ -41,7 +45,9 @@ export class ManagerWithMonitoring extends ManagerBase {
       await this.pollPorts();
       if (this.errorsDirty) {
         this.errorsDirty = false;
-        this.emit("errors", this.errors.list());
+        // Push the SAME filtered view the snapshot/HTTP paths serve — never the raw
+        // recorder list — so stale/previous-session records don't leak in via SSE.
+        this.emit("errors", this.listErrors());
       }
     } finally {
       this.tickRunning = false;

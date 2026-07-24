@@ -14,6 +14,26 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $root = Split-Path -Parent $scriptDir
 Set-Location $root
 
+# Drag-and-drop: Tray-Launch.vbs (shared engine) puts any paths dropped onto the .lnk into
+# LUNARWERX_TRAY_DROP ('|'-joined). A FOLDER is scanned and its projects/dev-servers ADDED; a
+# .devwebui file is loaded and STARTED. Each is handed to the `devwebui open` CLI verb
+# (server/src/cli.ts), which boots the daemon if needed. A drop is an ACTION on a project, not a
+# request to sit in the tray, so we do the action(s) and exit — matching the existing per-project
+# and per-process desktop shortcuts, which also don't raise a tray icon.
+if ($env:LUNARWERX_TRAY_DROP) {
+  $dropped = $env:LUNARWERX_TRAY_DROP
+  $env:LUNARWERX_TRAY_DROP = $null  # don't leak it into any daemon we spawn
+  foreach ($p in $dropped.Split('|')) {
+    if ([string]::IsNullOrWhiteSpace($p)) { continue }
+    # Same daemon binary as StartCommand below (cmd.exe /c so bun's PATHEXT shim resolves); hidden
+    # + fire-and-forget so several drops don't block each other.
+    Start-Process -FilePath "cmd.exe" `
+      -ArgumentList @("/c", "bun server\src\index.ts open `"$p`"") `
+      -WorkingDirectory $root -WindowStyle Hidden | Out-Null
+  }
+  exit 0
+}
+
 # Config dir honours DEVWEBUI_HOME (matches server/src/data-dir.ts), else ~/.devwebui — so
 # the runtime pointer + crash-log + sentinel paths the engine reads always track wherever
 # the daemon actually writes.

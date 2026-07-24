@@ -374,8 +374,7 @@ export default {
     hideTrayIconHelp:
       "Hides the notification-area icon. DevWebUI keeps running in the background — launching the shortcut again reopens the UI, and you can turn the icon back on right here.",
     tabGeneral: "General",
-    tabServers: "Servers",
-    tabProjects: "Projects",
+    tabAdvanced: "Advanced",
     portableNoBrowser: "Couldn't open a portable window - no Edge or Chrome found",
     portableOpenFailed:
       "Saved, but the portable window couldn't be opened - it will apply on the next launch",

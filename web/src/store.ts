@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, onScopeDispose, ref, watch } from "vue";
 import { useEventSource, useLocalStorage } from "@vueuse/core";
 import * as api from "./api";
 import { useSelfUpdate } from "@/lib/useSelfUpdate";
@@ -201,7 +201,10 @@ export const useAppStore = defineStore("app", () => {
 
   /** A single shared clock so uptime counters tick without per-card timers. */
   const now = ref(Date.now());
-  setInterval(() => (now.value = Date.now()), 1000);
+  const nowTimer = setInterval(() => (now.value = Date.now()), 1000);
+  // Pinia disposes a setup store during tests, HMR, and app teardown. Do not leave each old
+  // instance's clock running forever after its reactive scope is gone.
+  onScopeDispose(() => clearInterval(nowTimer));
 
   /** Flat view of every process across all projects (for global counts). */
   const allProcesses = computed(() => projects.value.flatMap((p) => p.processes));
@@ -283,10 +286,18 @@ export const useAppStore = defineStore("app", () => {
           // The daemon batches log lines (backpressure): one event carries many lines,
           // possibly spanning processes. Route each to its own process buffer.
           const batch = parsed as LogLine[];
+          const byProcess = new Map<string, LogLine[]>();
           for (const l of batch) {
-            logs.value[l.id] ??= [];
-            const arr = logs.value[l.id];
-            arr.push(l);
+            const lines = byProcess.get(l.id);
+            if (lines) lines.push(l);
+            else byProcess.set(l.id, [l]);
+          }
+          for (const [id, lines] of byProcess) {
+            logs.value[id] ??= [];
+            const arr = logs.value[id];
+            arr.push(...lines);
+            // Trim once per process batch. Splicing after every individual line repeatedly
+            // shifted the same reactive array during high-volume output.
             if (arr.length > MAX_LOG_LINES) arr.splice(0, arr.length - MAX_LOG_LINES);
           }
           break;

@@ -44,15 +44,18 @@ bun install
 bun run dev      # daemon on :4000  +  GUI on http://localhost:4010
 ```
 
-DevWebUI opens empty — drop a [`.devwebui` file](#devwebui-files) in a repo and click **Add
-project**. Want something to click right away? Add `server/examples/extra.devwebui` (two
-dependency-free heartbeat processes). The GUI and API share one port (default `4000`); if it's
+On its first launch DevWebUI scans once for [`.devwebui` files](#devwebui-files) and recognizable
+dev-script projects. After that, startup scanning stays off unless you enable it in Settings; use
+**Add project**, drop a folder or `.devwebui` file onto the Windows launcher, or run
+`devwebui open <path>` whenever you want to register something new. Want a dependency-free sample?
+Add `server/examples/extra.devwebui`. The GUI and API share one port (default `4000`); if it's
 taken, the daemon hops to the next free one and opens the URL it actually bound.
 
 ## What you get
 
 - **One-click control** — start / stop / restart any dev server; live status, CPU, memory, logs.
 - **One panel per repo** — a `.devwebui` file groups every process under one collapsible header; your projects auto-reload next launch.
+- **Runtime-aware launches** — automatic mode follows each project's lockfile, and compatible Bun/Node commands launch without a permanent shell wrapper.
 - **Port-conflict rescue** — detects a taken port, tells you which process is holding it, and frees it on request.
 - **Persistent error log** — de-duplicated stderr / crashes / error-looking stdout that survives restarts.
 - **Desktop shortcuts** — send any server (or a whole repo) to your Desktop from the ⋮ menu; double-click starts it, linked servers and all, in a small window with a Stop button.
@@ -127,6 +130,7 @@ log. **Full list →** [`AI_GUIDE.md`](AI_GUIDE.md#for-an-ai-driving-devwebui-ov
 devwebui start | stop | status | list                 # boot / stop the daemon, inspect state
 devwebui start-process | stop-process | restart-process <id|name>
 devwebui start-all | stop-all
+devwebui open <folder|file.devwebui>                  # add/drop a project; starts it if already added
 devwebui mcp                                           # the stdio MCP server for agents
 ```
 

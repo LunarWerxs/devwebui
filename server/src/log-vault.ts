@@ -78,6 +78,52 @@ export function appendLog(id: string, lines: string[]): void {
   }
 }
 
+const WRITE_FLUSH_MS = 75;
+const MAX_PENDING_WRITE_LINES = 10_000;
+
+/**
+ * Coalesce noisy child-process output into one vault append per process per short window.
+ *
+ * `appendLog` deliberately remains synchronous for direct callers/tests and for crash-time
+ * durability. The manager feeds this buffer instead, avoiding a stat + synchronous append for
+ * every stdout/stderr chunk while preserving ordering and forcing a flush on dispose/read.
+ */
+export class BufferedLogWriter {
+  private pending = new Map<string, string[]>();
+  private pendingLines = 0;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+
+  push(id: string, lines: readonly string[]): void {
+    if (!lines.length) return;
+    const bucket = this.pending.get(id);
+    if (bucket) {
+      for (const line of lines) bucket.push(line);
+    } else {
+      this.pending.set(id, [...lines]);
+    }
+    this.pendingLines += lines.length;
+    if (this.pendingLines >= MAX_PENDING_WRITE_LINES) {
+      this.flush();
+      return;
+    }
+    if (!this.timer) this.timer = setTimeout(() => this.flush(), WRITE_FLUSH_MS);
+  }
+
+  flush(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    if (!this.pending.size) return;
+    const batches = this.pending;
+    this.pending = new Map();
+    this.pendingLines = 0;
+    for (const [id, lines] of batches) appendLog(id, lines);
+  }
+
+  dispose(): void {
+    this.flush();
+  }
+}
+
 /**
  * Tail the last `lines` lines for a process across the current file and its
  * rotations (oldest rotation first, so the result reads chronologically).

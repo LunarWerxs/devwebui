@@ -148,9 +148,9 @@ export function registerProjectRoutes(app: Hono, manager: Manager) {
   });
   app.get(ROUTES.projectsSuggestDest, (c) => c.json({ dest: suggestCloneDest() }));
 
-  // Fast, bounded sweep of the machine for existing .devwebui files. Single-flighted
-  // and abort-aware in scan.ts — passing the request signal stops the walk if the
-  // client navigates away mid-scan.
+  // Fast, bounded sweep of the machine for existing .devwebui files. Serialized and
+  // abort-aware in scan.ts — passing the request signal stops this caller's walk if
+  // the client navigates away without cancelling another caller's scan.
   app.post(ROUTES.projectsScan, async (c) => {
     const body = await readBody(c);
     const roots = Array.isArray(body.roots) ? body.roots.map(String).filter(Boolean) : undefined;

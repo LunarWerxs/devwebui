@@ -17,6 +17,10 @@ export interface ProcessDef {
   port?: number;
   url?: string; // where the title links to: absolute URL, or a path appended to http://<host>:<port> (host = Settings.linkHost, else the GUI's own hostname)
   runtime?: "node" | "bun"; // launch this command under Node or Bun (rewrites the leading runtime)
+  /** Runtime the project's package manager implies (from its lockfile). Used only when `runtime`
+   *  is unset and the global setting is `auto`, to make `auto` per-project. Computed at load from
+   *  the project dir, never read from or written to the .devwebui file. */
+  detectedRuntime?: "node" | "bun";
   /** Dependency-ordered startup: a literal port, or a sibling process's `localId`, to wait on before spawning. */
   waitForPort?: number | string;
   /** Linked servers (sibling `localId`s): starting any member of a linked group starts the whole group. */

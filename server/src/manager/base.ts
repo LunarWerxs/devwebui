@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
 import treeKill from "tree-kill";
 import { diagnose, type Diagnosis } from "../diagnose";
-import { ErrorRecorder, type ErrorInfo } from "../errors";
-import { tailLog } from "../log-vault";
+import { ErrorRecorder, type ErrorInfo, type ErrorEvent, isErrorActive } from "../errors";
+import { BufferedLogWriter, tailLog } from "../log-vault";
 import type { RuntimePref } from "../runtime";
 import { getEnabledOverride, getProjectOverride } from "../state";
 import type { LogLine, ProcessDef, ProcessView, ProjectView, Status } from "../types";
@@ -24,6 +24,11 @@ export abstract class ManagerBase extends EventEmitter {
   protected projects = new Map<string, Project>();
   protected errorsDirty = false;
   protected errors = new ErrorRecorder(() => (this.errorsDirty = true));
+  // Start of THIS daemon session. Any persisted error the recorder just loaded from
+  // disk was seen before now, so it's filtered out of what the GUI sees (see
+  // listErrors) — the log survives for diagnosis, but stale errors never resurface
+  // as a live alert on launch. Initialized right after `errors` so it post-dates the load.
+  protected readonly bootedAt = Date.now();
   // Declared here (rather than in ManagerWithMonitoring, which is all that reads them)
   // so they initialize before this base constructor's call to `applyMonitorResources()`
   // — a subclass's own field initializers only run *after* its `super()` call returns.
@@ -34,6 +39,8 @@ export abstract class ManagerBase extends EventEmitter {
   protected queuedStarts = new Map<string, ReturnType<typeof setTimeout>>();
   /** Live-log backpressure: buffers child output, emits it in coalesced batches. */
   protected logBatcher = new LogBuffer((batch) => this.emit("log", batch));
+  /** Disk-log backpressure: one append per process per short burst, flushed on reads/shutdown. */
+  protected logVaultWriter = new BufferedLogWriter();
   /** Default runtime for processes that don't pin their own. */
   globalRuntime: RuntimePref = "auto";
   /** Free a process's declared port (kill whatever holds it) right before starting it. */
@@ -59,6 +66,7 @@ export abstract class ManagerBase extends EventEmitter {
     }
     for (const timer of this.queuedStarts.values()) clearTimeout(timer);
     this.queuedStarts.clear();
+    this.logVaultWriter.dispose();
   }
 
   /** Implemented by `ManagerWithMonitoring`: the port-probe + error-flush loop tick. */
@@ -94,8 +102,17 @@ export abstract class ManagerBase extends EventEmitter {
   }
 
   // ---- error log --------------------------------------------------------
-  listErrors() {
-    return this.errors.list();
+  // The GUI only ever sees CURRENT errors — recorded this daemon session, and (for a
+  // process that has since (re)started) only from its current run. Records from a
+  // previous session or a previous run stay on disk for post-mortem diagnosis but
+  // never resurface passively in the badge/drawer. This is the single choke point:
+  // the SSE snapshot, the HTTP GET, and the live push (monitoring tick) all read it.
+  listErrors(): ErrorEvent[] {
+    return this.errors
+      .list()
+      .filter((e) =>
+        isErrorActive(e, this.bootedAt, this.entries.get(e.processId)?.startedAt ?? null),
+      );
   }
 
   clearErrors(processId?: string): void {
@@ -118,6 +135,7 @@ export abstract class ManagerBase extends EventEmitter {
     const errors = this.errors.list().filter((err) => err.processId === id);
     // Feed the Log Vault's file tail in as a fallback evidence source (used only when
     // the de-duped error log above is empty — see diagnose()'s heuristic 2).
+    this.logVaultWriter.flush();
     const logTail = tailLog(id, 20);
     return diagnose({ def: e.def, status: e.status, exitCode: e.exitCode, errors, logTail });
   }
@@ -155,6 +173,7 @@ export abstract class ManagerBase extends EventEmitter {
    */
   getLogFileTail(id: string, lines: number): string[] {
     if (!this.entries.has(id)) return [];
+    this.logVaultWriter.flush();
     return tailLog(id, lines);
   }
 

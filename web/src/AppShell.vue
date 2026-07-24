@@ -16,7 +16,7 @@ import NotificationsDrawer from "./components/NotificationsDrawer.vue";
 import AppFooter from "@/shell/AppFooter.vue";
 import { useAppStore } from "./store";
 import { toast } from "vue-sonner";
-import { getSettings, scanForDevWebUI, type ScanResult } from "@/api";
+import { getSettings, saveSettings, scanForDevWebUI, type ScanResult } from "@/api";
 import type { AppNotification, ProcessView } from "@/types";
 
 const { t } = useI18n({ useScope: "global" });
@@ -146,7 +146,14 @@ function onScan() {
 /** Sweep the machine on launch (if enabled) and offer configured/detectable projects. */
 async function autoScanOnStart() {
   try {
-    if (!(await getSettings()).autoScan) return;
+    const s = await getSettings();
+    // Auto-scan is OFF by default now, but the VERY FIRST launch still sweeps once so a brand-new
+    // install isn't an empty screen. `firstScanDone` latches that one-time run (persisted per
+    // machine); after it, only the explicit auto-scan toggle triggers a startup sweep.
+    const firstRun = !s.firstScanDone;
+    if (!s.autoScan && !firstRun) return;
+    // Mark it done up front (best-effort, fire-and-forget) so a fast second mount can't double-fire.
+    if (firstRun) void saveSettings({ firstScanDone: true });
     await store.loadIgnoredProjects();
     // Thorough background sweep (server-owned "startup" preset: all drives, depth 12,
     // ~30s budget). Deferred + notification-only, so the depth costs us nothing.

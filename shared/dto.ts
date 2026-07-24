@@ -140,7 +140,8 @@ export interface Settings {
   autoStartOnLaunch: boolean; // start every enabled server when the daemon boots (default OFF)
   monitorResources: boolean; // sample per-process CPU + memory (in-process on Windows; no child processes)
   linkHost: string; // host used when opening a process from its title (http://<host>:<port>); blank = the GUI page's own hostname
-  autoScan: boolean; // sweep the machine for .devwebui files when the GUI loads
+  autoScan: boolean; // sweep the machine for .devwebui files when the GUI loads (default OFF)
+  firstScanDone: boolean; // per-machine marker: one startup scan runs on the very FIRST launch even when autoScan is off, then this latches so it never repeats. NOT synced (see connections.ts PREF_KEYS).
   scanExclude: string[]; // extra folder names / absolute paths to skip while scanning
   skipWindows: boolean; // skip Windows system folders while scanning
   skipMac: boolean; // skip macOS system folders

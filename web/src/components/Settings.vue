@@ -91,15 +91,14 @@ const hideTrayIcon = ref(false);
 const loadedPortableMode = ref(false);
 const saving = ref(false);
 
-// The panel groups its sections under three tabs so the everyday knobs come first.
-// Sections stay mounted behind v-show (SettingsTabs rule): the panel-open watcher
-// below hydrates every tab's fields in one go.
-type TabId = "general" | "servers" | "projects";
+// Two tabs: everyday knobs under General, everything else (server startup, how the UI opens,
+// project scanning) under Advanced. Sections stay mounted behind v-show (SettingsTabs rule): the
+// panel-open watcher below hydrates every tab's fields in one go.
+type TabId = "general" | "advanced";
 const tab = ref<TabId>("general");
 const tabs = computed<{ id: TabId; label: string }[]>(() => [
   { id: "general", label: t("settings.tabGeneral") },
-  { id: "servers", label: t("settings.tabServers") },
-  { id: "projects", label: t("settings.tabProjects") },
+  { id: "advanced", label: t("settings.tabAdvanced") },
 ]);
 
 // OS names are proper nouns — deliberately left untranslated.
@@ -265,8 +264,8 @@ async function save() {
       <CloudSyncSection />
       </div>
 
-      <!-- Servers: how they start, and how the UI opens ─────────────────────── -->
-      <div v-show="tab === 'servers'" class="flex flex-col gap-5">
+      <!-- Advanced: server startup, how the UI opens, and project scanning ───── -->
+      <div v-show="tab === 'advanced'" class="flex flex-col gap-5">
       <!-- Starting servers -->
       <SettingsGroup :label="t('settings.startingServers')">
         <SettingsRow :icon="Cpu" :label="t('settings.defaultRuntime')">
@@ -315,11 +314,7 @@ async function save() {
           <Input id="sd-link-host" v-model="linkHost" class="font-mono text-sm" :placeholder="t('settings.linkHostPlaceholder')" />
         </div>
       </SettingsGroup>
-      </div>
-
-      <!-- Projects: discovery and scanning ──────────────────────────────────── -->
-      <div v-show="tab === 'projects'" class="flex flex-col gap-5">
-      <!-- Project scanning -->
+      <!-- Project scanning (folded in from the old Projects tab) -->
       <SettingsGroup :label="t('settings.projectScanning')">
         <SettingsRow :icon="Search" :label="t('settings.autoScan')">
           <template #info><InfoHint>{{ t('settings.autoScanHint') }}</InfoHint></template>

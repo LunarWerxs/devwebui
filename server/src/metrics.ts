@@ -1,12 +1,14 @@
 // ---------------------------------------------------------------------------
 // Per-process CPU + memory sampling — lowest-impact path per platform.
 //
-// IMPORTANT: every managed server is spawned with `shell: true` (see manager.ts),
-// so the pid we're handed is the OS shell WRAPPER (cmd.exe on Windows), not the
-// actual server. The real Node/Bun process — the 50–200 MB one we care about —
-// lives in a child (or grandchild). So for each requested pid we measure the
-// ENTIRE descendant process tree and sum its working set + CPU. Measuring just
-// the wrapper reported ~8 MB and ~0% CPU no matter how big the real server was.
+// IMPORTANT: the pid we're handed is not necessarily the process that holds the memory.
+// A managed server spawned DIRECTLY (the common `bun …`/`node …` case — see spawn-plan.ts)
+// IS the real server, but it still fans out children of its own (Vite's esbuild service,
+// worker threads); and a server that needs a shell is spawned via `shell: true`, whose pid
+// is the OS shell WRAPPER (cmd.exe on Windows) with the real 50–200 MB process a child of
+// it. Either way, measuring one pid alone undercounts (the wrapper reported ~8 MB / ~0% CPU
+// no matter how big the real server was). So for each requested pid we measure the ENTIRE
+// descendant process tree and sum its working set + CPU.
 //
 // On Windows the daemon runs under Bun, so we call the Win32 API DIRECTLY via
 // bun:ffi: CreateToolhelp32Snapshot builds a parent→children map in-process, and

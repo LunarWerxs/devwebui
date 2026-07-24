@@ -83,3 +83,57 @@ test("scanForDevWebUI does not duplicate folders that already have a .devwebui",
     expect(result.detected).toEqual([]);
   });
 });
+
+test("concurrent package detection never races past the result limit", async () => {
+  await withTempDir(async (dir) => {
+    for (let i = 0; i < 12; i++) {
+      const app = path.join(dir, `app-${i}`);
+      await mkdir(app);
+      await writeFile(
+        path.join(app, "package.json"),
+        `${JSON.stringify({ name: `app-${i}`, scripts: { dev: "vite" } })}\n`,
+      );
+    }
+
+    const result = await scanForDevWebUI({
+      roots: [dir],
+      maxDepth: 2,
+      budgetMs: 5000,
+      limit: 2,
+      concurrency: 12,
+      detectPackages: true,
+    });
+
+    expect(result.files.length + result.detected.length).toBe(2);
+    expect(result.truncated).toBe(true);
+  });
+});
+
+test("one aborted caller does not cancel an identical caller's scan", async () => {
+  await withTempDir(async (dir) => {
+    const app = path.join(dir, "shared-app");
+    await mkdir(app);
+    await writeFile(
+      path.join(app, "package.json"),
+      `${JSON.stringify({ name: "shared-app", scripts: { dev: "vite" } })}\n`,
+    );
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+    const options = {
+      roots: [dir],
+      maxDepth: 2,
+      budgetMs: 5000,
+      limit: 10,
+      concurrency: 4,
+      detectPackages: true,
+    };
+
+    const first = scanForDevWebUI({ ...options, signal: firstController.signal });
+    const second = scanForDevWebUI({ ...options, signal: secondController.signal });
+    firstController.abort();
+
+    await first;
+    const result = await second;
+    expect(result.detected.map((entry) => entry.path)).toContain(app);
+  });
+});

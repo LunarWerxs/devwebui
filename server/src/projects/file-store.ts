@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { dataDir } from "../data-dir";
+import { detectProjectRuntime } from "../runtime";
 import type { LoadedProject, ProcessDef } from "../types";
 import { DevWebUIFileSchema, ProcessSchema, type DevWebUIProcess } from "../../../shared/schema";
 
@@ -34,6 +35,9 @@ export function readDevWebUIFile(filePath: string): LoadedProject {
   const parsed = DevWebUIFileSchema.parse(raw);
   const id = projectIdFromPath(abs);
   const dir = path.dirname(abs);
+  // Detect the project's runtime once from its lockfile — feeds the `auto` runtime setting so a
+  // Bun project's `node …` command runs under Bun (and vice-versa) without any per-process pin.
+  const detectedRuntime = detectProjectRuntime(dir);
 
   const seen = new Set<string>();
   const processes: ProcessDef[] = parsed.processes.map((p) => {
@@ -53,6 +57,7 @@ export function readDevWebUIFile(filePath: string): LoadedProject {
       port: p.port,
       url: p.url,
       runtime: p.runtime,
+      detectedRuntime,
       waitForPort: p.waitForPort,
       links: p.links,
       companion: p.companion,
