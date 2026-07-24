@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-24
+
 ### Added
 
 - **Folders and `.devwebui` files can be opened directly.** The new `devwebui open <path>`
@@ -15,6 +17,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Runtime selection now follows each project's lockfile.** With the global runtime set to
   `auto`, Bun lockfiles select Bun and npm, Yarn, or pnpm lockfiles select Node. An explicit
   per-process runtime remains the highest-priority override.
+- **Project configuration reloads live.** Changes to a registered project's `.devwebui` file are
+  detected and applied without requiring a daemon restart.
 
 ### Changed
 
@@ -36,6 +40,29 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   them out.
 - **Updater integration tests use the actual runtime executable.** This keeps JavaScript arguments
   intact on Windows installations where `bun` on `PATH` is an npm command shim.
+- **Project watching no longer depends on `fs.watch` supplying a filename.** Events from platforms
+  that omit it still trigger the configuration re-check.
+- **Daemon restarts keep a healthy instance available.** Instance probing retries transient
+  failures, and tray health checks require consecutive failures before treating the daemon as
+  dead.
+
+## [0.5.4] - 2026-07-16
+
+### Fixed
+
+- Align shutdown coverage with the hardened loopback-origin gate, which now protects both GET and
+  mutating daemon requests.
+
+## [0.5.3] - 2026-07-16
+
+### Added
+
+- Add measured first-run dashboard sizing to cold tray launches.
+- Adopt the shared loopback request guard and cover it with cross-platform tests.
+
+### Changed
+
+- Increase the real-Git updater integration timeouts to tolerate cold Windows process startup.
 
 ## [0.5.2] - 2026-07-16
 

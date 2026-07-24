@@ -15,8 +15,34 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    name: validate release metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify version and changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          package_ver="$(node -p "require('./package.json').version")"
+          if [ "$package_ver" != "$ver" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${package_ver}"
+            exit 1
+          fi
+          awk -v ver="$ver" '
+            index($0, "## [" ver "]") == 1 { grab = 1; next }
+            grab && /^## / { exit }
+            grab { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          if ! grep -q '[^[:space:]]' RELEASE_NOTES.md; then
+            echo "::error::CHANGELOG.md has no release section for ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
   build:
     name: build (${{ matrix.os }})
+    needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -66,10 +92,13 @@ jobs:
           ver="${GITHUB_REF_NAME#v}"
           awk -v ver="$ver" '
             index($0, "## [" ver "]") == 1 { grab = 1; next }
-            grab && index($0, "## [") == 1 { exit }
+            grab && /^## / { exit }
             grab { print }
           ' CHANGELOG.md > RELEASE_NOTES.md
-          [ -s RELEASE_NOTES.md ] || echo "Release ${GITHUB_REF_NAME}." > RELEASE_NOTES.md
+          if ! grep -q '[^[:space:]]' RELEASE_NOTES.md; then
+            echo "::error::CHANGELOG.md has no release section for ${GITHUB_REF_NAME}"
+            exit 1
+          fi
           echo "----- release notes -----"; cat RELEASE_NOTES.md
       - uses: actions/download-artifact@v8
         with:
